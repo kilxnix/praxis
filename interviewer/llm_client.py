@@ -13,7 +13,6 @@ All tiers default to the VIB_MODEL env var or qwen3.5:4b.
 
 import json
 import os
-import re
 from typing import Dict, List, Optional
 
 import httpx
