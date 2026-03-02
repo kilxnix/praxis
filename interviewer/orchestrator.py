@@ -84,7 +84,7 @@ Respond ONLY with valid JSON matching the schema above.
 """
 
 
-def analyze_message(
+async def analyze_message(
     user_message: str,
     conversation_history: List[Dict[str, str]],
     cartographer: CartographerState,
@@ -119,7 +119,7 @@ def analyze_message(
     }
 
     if llm_client:
-        return llm_client.cartographer_analyze(
+        return await llm_client.cartographer_analyze(
             system=CARTOGRAPHER_SYSTEM_PROMPT,
             analysis_input=analysis_context,
         )
@@ -446,7 +446,7 @@ class InterviewerSession:
         # Initialize cartographer needs with everything at zero
         self.cartographer.needs = _compute_needs(self.cartographer, self.graph)
 
-    def process_turn(self, user_message: str) -> Dict:
+    async def process_turn(self, user_message: str) -> Dict:
         """
         Process a single user message and return the agent's response.
         
@@ -468,7 +468,7 @@ class InterviewerSession:
         self.graph.turn_number += 1
 
         # ── Step 1: Cartographer analyzes the message ──
-        analysis = analyze_message(
+        analysis = await analyze_message(
             user_message=user_message,
             conversation_history=self.conversation_history,
             cartographer=self.cartographer,
@@ -507,7 +507,7 @@ class InterviewerSession:
 
         for attempt in range(self.max_retries + 1):
             if self.llm_client:
-                response_text = self.llm_client.interviewer_generate(
+                response_text = await self.llm_client.interviewer_generate(
                     system=prompt["system"],
                     messages=prompt["messages"],
                 )
