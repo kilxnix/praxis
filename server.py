@@ -78,22 +78,26 @@ async def websocket_endpoint(ws: WebSocket):
                 mirror_mode = False
                 mirror_history = []
 
+                opening = f"Hey {name}. I'm glad you're here. What's been on your mind?"
                 if llm_client:
-                    opening_system = (
-                        BASE_SYSTEM_PROMPT + "\n\n"
-                        + PHASE_PROMPTS[Phase.FIRST_CONTACT] + "\n\n"
-                        + MOVE_STYLE_GUIDES[MoveType.OPEN_DOOR] + "\n\n"
-                        + f"The user's name is {name}. This is your very first interaction. "
-                        + f"Generate a warm, natural opening. Introduce the vibe — you're here "
-                        + f"to get to know them. Don't be formal. Don't explain the system. "
-                        + f"Just be a presence they want to talk to. 2-3 sentences max."
-                    )
-                    opening = await llm_client.interviewer_generate(
-                        system=opening_system,
-                        messages=[{"role": "user", "content": f"[Start conversation with {name}]"}],
-                    )
-                else:
-                    opening = f"Hey {name}. I'm glad you're here. What's been on your mind?"
+                    try:
+                        opening_system = (
+                            BASE_SYSTEM_PROMPT + "\n\n"
+                            + PHASE_PROMPTS[Phase.FIRST_CONTACT] + "\n\n"
+                            + MOVE_STYLE_GUIDES[MoveType.OPEN_DOOR] + "\n\n"
+                            + f"The user's name is {name}. This is your very first interaction. "
+                            + f"Generate a warm, natural opening. Introduce the vibe — you're here "
+                            + f"to get to know them. Don't be formal. Don't explain the system. "
+                            + f"Just be a presence they want to talk to. 2-3 sentences max."
+                        )
+                        opening = await llm_client.interviewer_generate(
+                            system=opening_system,
+                            messages=[{"role": "user", "content": f"[Start conversation with {name}]"}],
+                        )
+                    except Exception as e:
+                        print(f"[LLM ERROR] Opening generation failed: {e}")
+                        llm_client = None
+                        session.llm_client = None
 
                 session.conversation_history.append({"role": "assistant", "content": opening})
                 await ws.send_json({"type": "opening", "text": opening})
@@ -125,7 +129,13 @@ async def websocket_endpoint(ws: WebSocket):
                         "mode": "mirror",
                     })
                 else:
-                    result = await session.process_turn(text)
+                    try:
+                        result = await session.process_turn(text)
+                    except Exception as e:
+                        print(f"[LLM ERROR] process_turn failed: {e}")
+                        llm_client = None
+                        session.llm_client = None
+                        result = await session.process_turn(text)
                     await ws.send_json({
                         "type": "response",
                         "text": result["response"],

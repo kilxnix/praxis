@@ -24,9 +24,9 @@ import httpx
 
 class ModelTier:
     """Model assignments per system. Override via VIB_MODEL env var."""
-    INTERVIEWER = os.environ.get("VIB_MODEL", "qwen3.5:4b")
-    CARTOGRAPHER = os.environ.get("VIB_MODEL", "qwen3.5:4b")
-    MIRROR = os.environ.get("VIB_MODEL", "qwen3.5:4b")
+    INTERVIEWER = os.environ.get("VIB_MODEL", "qwen2.5:3b")
+    CARTOGRAPHER = os.environ.get("VIB_MODEL", "qwen2.5:3b")
+    MIRROR = os.environ.get("VIB_MODEL", "qwen2.5:3b")
 
 
 # ---------------------------------------------

@@ -20,10 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 class TestModelTier:
     def test_defaults_contain_model_name(self):
         from interviewer.llm_client import ModelTier
-        # All tiers should reference the default model (qwen3.5)
-        assert "qwen3.5" in ModelTier.INTERVIEWER
-        assert "qwen3.5" in ModelTier.CARTOGRAPHER
-        assert "qwen3.5" in ModelTier.MIRROR
+        # All tiers should reference a qwen model
+        assert "qwen" in ModelTier.INTERVIEWER
+        assert "qwen" in ModelTier.CARTOGRAPHER
+        assert "qwen" in ModelTier.MIRROR
 
     def test_all_tiers_defined(self):
         from interviewer.llm_client import ModelTier
