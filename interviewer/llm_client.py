@@ -1,120 +1,106 @@
 """
-The Soul — LLM Client
+The Soul -- LLM Client (Ollama)
 
-Wraps the Anthropic API. Routes calls to the right model based on
-which system is calling:
+Wraps the Ollama async HTTP API at localhost:11434/api/chat.
+Routes calls to the right model tier:
 
-- Interviewer (user-facing generation) → Opus 4.6
-- Cartographer (structured analysis)   → Opus 4.6
-- Negotiation (agent-to-agent)         → Opus 4.6
-- Messenger (reveal delivery)          → Opus 4.6
+- Interviewer (user-facing generation)
+- Cartographer (structured analysis)
+- Mirror (soul persona builder)
 
-Using Opus across the board for maximum quality during development.
-In production, Cartographer could drop to Haiku for cost optimization.
+All tiers default to the VIB_MODEL env var or qwen3.5:4b.
 """
 
 import json
 import os
+import re
 from typing import Dict, List, Optional
 
-try:
-    from anthropic import Anthropic
-    HAS_ANTHROPIC = True
-except ImportError:
-    HAS_ANTHROPIC = False
-    Anthropic = None
+import httpx
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # MODEL ROUTING
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 class ModelTier:
-    # All Opus for now — best quality during prototyping
-    INTERVIEWER = "claude-opus-4-6"
-    CARTOGRAPHER = "claude-opus-4-6"
-    NEGOTIATION = "claude-opus-4-6"
-    MESSENGER = "claude-opus-4-6"
-
-    # Future production config:
-    # CARTOGRAPHER = "claude-haiku-4-5-20251001"  # Fast + cheap for JSON extraction
-    # INTERVIEWER  = "claude-sonnet-4-5-20250929" # Balance of quality and cost
-    # NEGOTIATION  = "claude-sonnet-4-5-20250929"
-    # MESSENGER    = "claude-sonnet-4-5-20250929"
+    """Model assignments per system. Override via VIB_MODEL env var."""
+    INTERVIEWER = os.environ.get("VIB_MODEL", "qwen3.5:4b")
+    CARTOGRAPHER = os.environ.get("VIB_MODEL", "qwen3.5:4b")
+    MIRROR = os.environ.get("VIB_MODEL", "qwen3.5:4b")
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # CLIENT
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
-class SoulLLMClient:
+class OllamaLLMClient:
     """
-    Unified LLM client for all Soul systems.
-    Handles model routing, retries, and response parsing.
+    Async LLM client that talks to a local Ollama instance.
+    Handles model routing, JSON parsing, and response extraction.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
-        if not HAS_ANTHROPIC:
-            raise ImportError(
-                "The 'anthropic' package is required. Install with: pip install anthropic"
-            )
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY must be set in environment or passed directly."
-            )
-        self.client = Anthropic(api_key=self.api_key)
+    def __init__(self, base_url: str = "http://localhost:11434"):
+        self.base_url = base_url
+        self._http = httpx.AsyncClient(base_url=base_url, timeout=120.0)
 
-    # ── Core completion method ──
+    async def close(self):
+        """Close the underlying httpx client."""
+        await self._http.aclose()
 
-    def complete(
+    # -- Core completion method --
+
+    async def complete(
         self,
         system: str,
         messages: List[Dict[str, str]],
         model: str = ModelTier.INTERVIEWER,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        format_json: bool = False,
     ) -> str:
         """
-        Send a completion request to the Anthropic API.
-        Returns the text content of the response.
+        Send a chat completion request to Ollama's /api/chat endpoint.
+        Returns the text content of the assistant's response.
         """
-        response = self.client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=messages,
-        )
+        payload: Dict = {
+            "model": model,
+            "messages": [{"role": "system", "content": system}] + messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
 
-        # Extract text from response content blocks
-        text_parts = []
-        for block in response.content:
-            if block.type == "text":
-                text_parts.append(block.text)
+        if format_json:
+            payload["format"] = "json"
 
-        return "\n".join(text_parts)
+        response = await self._http.post("/api/chat", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["message"]["content"]
 
-    # ── System-specific methods ──
+    # -- System-specific methods --
 
-    def interviewer_generate(
+    async def interviewer_generate(
         self,
         system: str,
         messages: List[Dict[str, str]],
     ) -> str:
         """
         Generate the interviewer's response to the user.
-        Uses highest quality model, moderate temperature for natural feel.
+        Moderate temperature for natural conversational feel.
         """
-        return self.complete(
+        return await self.complete(
             system=system,
             messages=messages,
             model=ModelTier.INTERVIEWER,
-            max_tokens=512,       # Responses should be short — 1-4 sentences
-            temperature=0.75,     # Slightly creative for natural conversation
+            max_tokens=512,
+            temperature=0.75,
         )
 
-    def cartographer_analyze(
+    async def cartographer_analyze(
         self,
         system: str,
         analysis_input: Dict,
@@ -122,22 +108,59 @@ class SoulLLMClient:
         """
         Run cartographer analysis on a user message.
         Returns parsed JSON with trait signals, emotional read, etc.
-        
-        Uses lower temperature for more consistent structured output.
+        Low temperature for consistent structured output.
         """
-        response_text = self.complete(
+        messages = [{
+            "role": "user",
+            "content": json.dumps(analysis_input, indent=2),
+        }]
+
+        response_text = await self.complete(
             system=system,
-            messages=[{
-                "role": "user",
-                "content": json.dumps(analysis_input, indent=2),
-            }],
+            messages=messages,
             model=ModelTier.CARTOGRAPHER,
             max_tokens=1024,
-            temperature=0.3,      # Low temp for consistent JSON extraction
+            temperature=0.3,
+            format_json=True,
         )
 
-        # Parse JSON from response — handle potential markdown wrapping
-        cleaned = response_text.strip()
+        return self._parse_json_response(response_text)
+
+    async def mirror_generate(
+        self,
+        system: str,
+        messages: List[Dict[str, str]],
+    ) -> str:
+        """
+        Generate the soul mirror / persona output.
+        Higher temperature for warmth and creative nuance.
+        """
+        return await self.complete(
+            system=system,
+            messages=messages,
+            model=ModelTier.MIRROR,
+            max_tokens=512,
+            temperature=0.8,
+        )
+
+    # -- JSON fallback chain --
+
+    def _parse_json_response(self, text: str) -> Dict:
+        """
+        Parse JSON from LLM output with a multi-step fallback chain:
+        1. Parse directly
+        2. Strip markdown code blocks and parse
+        3. Find first '{' and last '}' and parse that substring
+        4. Return safe default dict
+        """
+        # Attempt 1: direct parse
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Attempt 2: strip markdown code fences
+        cleaned = text.strip()
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
         if cleaned.startswith("```"):
@@ -148,53 +171,31 @@ class SoulLLMClient:
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeError:
-            # If parsing fails, return a safe default
-            # In production, this should log and retry
-            print(f"[CARTOGRAPHER WARNING] Failed to parse JSON response:")
-            print(f"  Raw: {response_text[:200]}...")
-            return {
-                "trait_signals": [],
-                "emotional_read": {
-                    "temperature": "cool",
-                    "trend": "stable",
-                    "energy": 0.5,
-                },
-                "thread_updates": [],
-                "contradiction_check": None,
-                "unclassified": [],
-            }
+        except (json.JSONDecodeError, TypeError):
+            pass
 
-    def negotiation_evaluate(
-        self,
-        system: str,
-        messages: List[Dict[str, str]],
-    ) -> str:
-        """
-        Agent-to-agent negotiation call.
-        Reasoning-heavy — needs precision over creativity.
-        """
-        return self.complete(
-            system=system,
-            messages=messages,
-            model=ModelTier.NEGOTIATION,
-            max_tokens=2048,
-            temperature=0.4,
-        )
+        # Attempt 3: find first { and last }
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            try:
+                return json.loads(text[first_brace : last_brace + 1])
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-    def messenger_generate(
-        self,
-        system: str,
-        messages: List[Dict[str, str]],
-    ) -> str:
-        """
-        Generate the match reveal conversation.
-        Warm and emotionally intelligent — needs creative nuance.
-        """
-        return self.complete(
-            system=system,
-            messages=messages,
-            model=ModelTier.MESSENGER,
-            max_tokens=1024,
-            temperature=0.8,      # Higher temp for warmth and personality
-        )
+        # Attempt 4: safe default
+        return {
+            "trait_signals": [],
+            "emotional_read": {
+                "temperature": "cool",
+                "trend": "stable",
+                "energy": 0.5,
+            },
+            "thread_updates": [],
+            "contradiction_check": None,
+            "unclassified": [],
+        }
+
+
+# Backward-compatible alias
+SoulLLMClient = OllamaLLMClient
