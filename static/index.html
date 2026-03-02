@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vib</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Name entry screen -->
+    <div id="welcome-screen" class="screen active">
+        <div class="welcome-container">
+            <h1 class="logo">vib</h1>
+            <p class="tagline">let's get to know you</p>
+            <form id="name-form">
+                <input
+                    type="text"
+                    id="name-input"
+                    placeholder="what should I call you?"
+                    autocomplete="off"
+                    autofocus
+                >
+                <button type="submit" class="btn-start">begin</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Chat screen -->
+    <div id="chat-screen" class="screen">
+        <header class="chat-header">
+            <div class="header-left">
+                <span class="logo-small">vib</span>
+                <span id="mode-indicator" class="mode-badge">the soul</span>
+            </div>
+            <div class="header-right">
+                <button id="btn-status" class="header-btn" title="Soul readiness">status</button>
+                <button id="btn-mirror" class="header-btn mirror-btn" title="Meet your Soul">meet your soul</button>
+            </div>
+        </header>
+
+        <main id="messages" class="messages-container">
+        </main>
+
+        <footer class="input-container">
+            <form id="message-form">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="say something..."
+                    autocomplete="off"
+                >
+                <button type="submit" class="btn-send">&#x2191;</button>
+            </form>
+        </footer>
+    </div>
+
+    <!-- Status overlay -->
+    <div id="status-overlay" class="overlay hidden">
+        <div class="overlay-content">
+            <div class="overlay-header">
+                <h2>soul readiness</h2>
+                <button id="btn-close-status" class="btn-close">&times;</button>
+            </div>
+            <div id="status-body"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
