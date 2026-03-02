@@ -9,7 +9,7 @@ a conversation that feels remarkably human.
 """
 
 from typing import List, Dict, Optional
-from models import (
+from interviewer.models import (
     SelectedMove, MoveType, ConversationGraph, CartographerState, Phase
 )
 

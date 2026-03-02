@@ -19,9 +19,6 @@ import argparse
 import sys
 import os
 
-# Add the interviewer package to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "interviewer"))
-
 from interviewer.orchestrator import InterviewerSession
 from interviewer.llm_client import SoulLLMClient
 from interviewer.models import Phase, EmotionalTemperature, MoveType

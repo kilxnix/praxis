@@ -18,16 +18,16 @@ Flow per turn:
 
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
-from models import (
+from interviewer.models import (
     ConversationGraph, CartographerState, Phase, EmotionalTemperature,
     OpenThread, TraitConfidence, Contradiction, CartographerNeeds,
     MoveType, SelectedMove
 )
-from move_generator import select_move
-from prompt_builder import build_prompt, validate_response
+from interviewer.move_generator import select_move
+from interviewer.prompt_builder import build_prompt, validate_response
 
 try:
-    from llm_client import SoulLLMClient, ModelTier
+    from interviewer.llm_client import SoulLLMClient, ModelTier
 except ImportError:
     SoulLLMClient = None
     ModelTier = None

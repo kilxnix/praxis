@@ -11,7 +11,7 @@ a Psychograph gap. It will hold space first, gather data never or later.
 """
 
 from typing import List, Optional, Tuple
-from models import (
+from interviewer.models import (
     MoveType, MoveConstraints, MOVE_RULES,
     ConversationGraph, CartographerState, SelectedMove,
     EmotionalTemperature, Phase, OpenThread, Contradiction,
