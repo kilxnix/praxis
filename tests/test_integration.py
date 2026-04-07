@@ -1,4 +1,4 @@
-"""End-to-end integration test — verifies the full pipeline works without Ollama."""
+"""End-to-end integration test -- full interview flow without Ollama."""
 import pytest
 from fastapi.testclient import TestClient
 from server import app
@@ -10,49 +10,50 @@ def client():
 
 
 class TestFullFlow:
-    def test_interview_then_mirror(self, client):
-        """Complete flow: start -> interview -> check status -> switch to mirror."""
+    def test_start_and_chat(self, client):
+        """Complete flow: start -> messages -> status."""
         with client.websocket_connect("/ws") as ws:
-            # Start
-            ws.send_json({"type": "start", "name": "IntegrationTest"})
-            opening = ws.receive_json()
-            assert opening["type"] == "opening"
-            assert len(opening["text"]) > 0
+            # Start session
+            ws.send_json({"type": "start", "name": "TestUser"})
+            started = ws.receive_json()
+            assert started["type"] == "started"
+            assert started["data"]["phase"] == "ARRIVAL"
 
-            # Send a few messages
-            for msg in [
-                "I've been thinking about moving to a new city",
-                "I love being around people but I also need my alone time",
-                "Honestly I think I avoid conflict too much",
-            ]:
-                ws.send_json({"type": "message", "text": msg})
-                resp = ws.receive_json()
-                assert resp["type"] == "response"
-                assert len(resp["text"]) > 0
+            # Send messages
+            ws.send_json({"type": "message", "text": "I just moved to a new city last month."})
+            resp1 = ws.receive_json()
+            assert resp1["type"] == "response"
+            assert len(resp1["text"]) > 0
+            assert resp1["data"]["turn"] == 2  # turn 1 was the synthetic greeting
+
+            # Send another message
+            ws.send_json({"type": "message", "text": "Yeah it's been an adjustment."})
+            resp2 = ws.receive_json()
+            assert resp2["type"] == "response"
 
             # Check status
-            ws.send_json({"type": "command", "command": "status"})
+            ws.send_json({"type": "status"})
             status = ws.receive_json()
             assert status["type"] == "status"
-            assert "dimensions" in status["data"]
-            assert len(status["data"]["dimensions"]) == 10
+            assert "readiness" in status["data"]
 
-            # Switch to mirror mode
-            ws.send_json({"type": "command", "command": "mirror"})
-            mirror = ws.receive_json()
-            assert mirror["type"] == "mode_change"
-            assert mirror["mode"] == "mirror"
-            assert len(mirror["text"]) > 0
+    def test_attunement_increases_over_conversation(self, client):
+        """Attunement should increase over multiple turns."""
+        import uuid
+        unique_name = f"AttTest_{uuid.uuid4().hex[:8]}"
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "start", "name": unique_name})
+            started = ws.receive_json()
+            initial_attunement = started["data"]["attunement"]
 
-            # Talk to the twin
-            ws.send_json({"type": "message", "text": "What do you think about long distance?"})
-            twin_resp = ws.receive_json()
-            assert twin_resp["type"] == "response"
-            assert twin_resp["mode"] == "mirror"
-            assert len(twin_resp["text"]) > 0
+            for msg in [
+                "I love hiking in the mountains",
+                "It makes me feel alive",
+                "I've always been drawn to nature",
+            ]:
+                ws.send_json({"type": "message", "text": msg})
+                ws.receive_json()
 
-            # Switch back
-            ws.send_json({"type": "command", "command": "interview"})
-            back = ws.receive_json()
-            assert back["type"] == "mode_change"
-            assert back["mode"] == "interview"
+            ws.send_json({"type": "status"})
+            status = ws.receive_json()
+            assert status["data"]["attunement"] > initial_attunement

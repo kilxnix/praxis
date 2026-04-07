@@ -1,4 +1,4 @@
-"""Tests for the FastAPI WebSocket server."""
+"""Tests for the FastAPI WebSocket server (interview mode)."""
 import json
 import pytest
 from fastapi.testclient import TestClient
@@ -22,36 +22,41 @@ class TestWebSocket:
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"type": "start", "name": "TestUser"})
             data = ws.receive_json()
-            assert data["type"] == "opening"
-            assert "text" in data
+            assert data["type"] == "started"
+            assert "greeting" in data
+            assert "data" in data
+            assert data["data"]["phase"] == "ARRIVAL"
 
     def test_send_message(self, client):
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"type": "start", "name": "TestUser"})
-            ws.receive_json()  # opening
+            ws.receive_json()  # started
 
-            ws.send_json({"type": "message", "text": "I love hiking"})
+            ws.send_json({"type": "message", "text": "I just moved to a new city."})
             data = ws.receive_json()
             assert data["type"] == "response"
             assert "text" in data
+            assert "move" in data
+            assert "data" in data
 
     def test_status_command(self, client):
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"type": "start", "name": "TestUser"})
-            ws.receive_json()  # opening
+            ws.receive_json()
 
-            ws.send_json({"type": "command", "command": "status"})
+            ws.send_json({"type": "status"})
             data = ws.receive_json()
             assert data["type"] == "status"
             assert "data" in data
-            assert "dimensions" in data["data"]
+            assert "readiness" in data["data"]
 
-    def test_mirror_mode(self, client):
+    def test_empty_message_ignored(self, client):
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"type": "start", "name": "TestUser"})
-            ws.receive_json()  # opening
+            ws.receive_json()
 
-            ws.send_json({"type": "command", "command": "mirror"})
+            ws.send_json({"type": "message", "text": ""})
+            # Should not get a response for empty message
+            ws.send_json({"type": "status"})
             data = ws.receive_json()
-            assert data["type"] == "mode_change"
-            assert data["mode"] == "mirror"
+            assert data["type"] == "status"

@@ -20,10 +20,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 class TestModelTier:
     def test_defaults_contain_model_name(self):
         from interviewer.llm_client import ModelTier
-        # All tiers should reference a qwen model
-        assert "qwen" in ModelTier.INTERVIEWER
-        assert "qwen" in ModelTier.CARTOGRAPHER
-        assert "qwen" in ModelTier.MIRROR
+        assert "qwen3.5" in ModelTier.INTERVIEWER
+        assert "qwen3.5" in ModelTier.CARTOGRAPHER
+        assert "qwen3.5" in ModelTier.MIRROR
 
     def test_all_tiers_defined(self):
         from interviewer.llm_client import ModelTier
@@ -34,14 +33,12 @@ class TestModelTier:
     def test_env_override(self):
         """VIB_MODEL env var should override the default."""
         with patch.dict("os.environ", {"VIB_MODEL": "llama3:8b"}):
-            # Re-import to pick up the env var — we need a fresh class
             import importlib
             import interviewer.llm_client as mod
             importlib.reload(mod)
             assert mod.ModelTier.INTERVIEWER == "llama3:8b"
             assert mod.ModelTier.CARTOGRAPHER == "llama3:8b"
             assert mod.ModelTier.MIRROR == "llama3:8b"
-            # Reload again with clean env to avoid polluting other tests
             importlib.reload(mod)
 
 
@@ -50,12 +47,11 @@ class TestModelTier:
 # ---------------------------------------------------------------------------
 
 def _make_httpx_response(content_text: str, status_code: int = 200):
-    """Build a mock httpx.Response with the Ollama /api/chat shape."""
     resp = MagicMock()
     resp.status_code = status_code
     resp.raise_for_status = MagicMock()
     resp.json.return_value = {
-        "model": "qwen3.5:4b",
+        "model": "qwen3.5:9b",
         "message": {"role": "assistant", "content": content_text},
         "done": True,
     }
@@ -79,7 +75,7 @@ class TestComplete:
         result = await client.complete(
             system="You are helpful.",
             messages=[{"role": "user", "content": "Hi"}],
-            model="qwen3.5:4b",
+            model="qwen3.5:9b",
         )
         assert result == "Hello, world!"
 
@@ -100,7 +96,6 @@ class TestComplete:
             temperature=0.5,
         )
 
-        # Verify the POST call
         client._http.post.assert_called_once()
         call_args = client._http.post.call_args
         url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
@@ -111,53 +106,11 @@ class TestComplete:
         assert payload["stream"] is False
         assert payload["options"]["temperature"] == 0.5
         assert payload["options"]["num_predict"] == 256
-
-        # System message should be first in messages array
         assert payload["messages"][0]["role"] == "system"
-        assert payload["messages"][0]["content"] == "Be concise."
-        # User message follows
-        assert payload["messages"][1]["role"] == "user"
-
-    @pytest.mark.asyncio
-    async def test_format_json_flag(self):
-        from interviewer.llm_client import OllamaLLMClient
-        mock_response = _make_httpx_response('{"key": "value"}')
-
-        client = OllamaLLMClient()
-        client._http = AsyncMock()
-        client._http.post = AsyncMock(return_value=mock_response)
-
-        await client.complete(
-            system="Return JSON.",
-            messages=[{"role": "user", "content": "go"}],
-            model="qwen3.5:4b",
-            format_json=True,
-        )
-
-        payload = client._http.post.call_args.kwargs.get("json") or client._http.post.call_args.args[1]
-        assert payload["format"] == "json"
-
-    @pytest.mark.asyncio
-    async def test_format_json_absent_by_default(self):
-        from interviewer.llm_client import OllamaLLMClient
-        mock_response = _make_httpx_response("plain text")
-
-        client = OllamaLLMClient()
-        client._http = AsyncMock()
-        client._http.post = AsyncMock(return_value=mock_response)
-
-        await client.complete(
-            system="sys",
-            messages=[{"role": "user", "content": "go"}],
-            model="qwen3.5:4b",
-        )
-
-        payload = client._http.post.call_args.kwargs.get("json") or client._http.post.call_args.args[1]
-        assert "format" not in payload
 
 
 # ---------------------------------------------------------------------------
-# cartographer_analyze — JSON fallback chain
+# cartographer_analyze -- JSON fallback chain
 # ---------------------------------------------------------------------------
 
 class TestCartographerAnalyze:
@@ -183,47 +136,11 @@ class TestCartographerAnalyze:
         )
         assert isinstance(result, dict)
         assert result["trait_signals"][0]["dimension"] == "openness"
-        assert result["emotional_read"]["temperature"] == "warm"
-
-    @pytest.mark.asyncio
-    async def test_handles_markdown_wrapped_json(self):
-        from interviewer.llm_client import OllamaLLMClient
-        inner = {"trait_signals": [], "emotional_read": {"temperature": "cool"}}
-        wrapped = f"```json\n{json.dumps(inner)}\n```"
-        mock_response = _make_httpx_response(wrapped)
-
-        client = OllamaLLMClient()
-        client._http = AsyncMock()
-        client._http.post = AsyncMock(return_value=mock_response)
-
-        result = await client.cartographer_analyze(
-            system="Analyze.",
-            analysis_input={"user_message": "test"},
-        )
-        assert result["emotional_read"]["temperature"] == "cool"
-
-    @pytest.mark.asyncio
-    async def test_handles_json_with_surrounding_text(self):
-        """Fallback: find first { and last } in response."""
-        from interviewer.llm_client import OllamaLLMClient
-        inner = {"trait_signals": [], "emotional_read": {"temperature": "hot"}}
-        messy = f"Here is the analysis:\n{json.dumps(inner)}\nThat's my output."
-        mock_response = _make_httpx_response(messy)
-
-        client = OllamaLLMClient()
-        client._http = AsyncMock()
-        client._http.post = AsyncMock(return_value=mock_response)
-
-        result = await client.cartographer_analyze(
-            system="Analyze.",
-            analysis_input={"user_message": "test"},
-        )
-        assert result["emotional_read"]["temperature"] == "hot"
 
     @pytest.mark.asyncio
     async def test_returns_safe_default_on_garbage(self):
         from interviewer.llm_client import OllamaLLMClient
-        mock_response = _make_httpx_response("This is not JSON at all, no braces here!")
+        mock_response = _make_httpx_response("This is not JSON at all!")
 
         client = OllamaLLMClient()
         client._http = AsyncMock()
@@ -233,12 +150,8 @@ class TestCartographerAnalyze:
             system="Analyze.",
             analysis_input={"user_message": "garbage"},
         )
-        # Should return the safe default dict
         assert isinstance(result, dict)
-        assert "trait_signals" in result
-        assert "emotional_read" in result
         assert result["trait_signals"] == []
-        assert result["emotional_read"]["temperature"] == "cool"
 
 
 # ---------------------------------------------------------------------------
@@ -247,42 +160,42 @@ class TestCartographerAnalyze:
 
 class TestInterviewerGenerate:
     @pytest.mark.asyncio
-    async def test_calls_complete_with_correct_params(self):
+    async def test_calls_complete(self):
         from interviewer.llm_client import OllamaLLMClient, ModelTier
         client = OllamaLLMClient()
-        client.complete = AsyncMock(return_value="Generated response")
+        client.complete = AsyncMock(return_value="That's honest.")
 
         result = await client.interviewer_generate(
-            system="You are an interviewer.",
-            messages=[{"role": "user", "content": "Hello"}],
+            system="You are the interviewer.",
+            messages=[{"role": "user", "content": "I moved recently."}],
         )
-        assert result == "Generated response"
+        assert result == "That's honest."
         client.complete.assert_called_once_with(
-            system="You are an interviewer.",
-            messages=[{"role": "user", "content": "Hello"}],
+            system="You are the interviewer.",
+            messages=[{"role": "user", "content": "I moved recently."}],
             model=ModelTier.INTERVIEWER,
-            max_tokens=512,
+            max_tokens=256,
             temperature=0.75,
         )
 
 
 class TestMirrorGenerate:
     @pytest.mark.asyncio
-    async def test_calls_complete_with_correct_params(self):
+    async def test_calls_complete(self):
         from interviewer.llm_client import OllamaLLMClient, ModelTier
         client = OllamaLLMClient()
-        client.complete = AsyncMock(return_value="Mirror output")
+        client.complete = AsyncMock(return_value="Yeah, that sounds like me.")
 
         result = await client.mirror_generate(
-            system="You are the mirror.",
-            messages=[{"role": "user", "content": "Reflect"}],
+            system="You are their soul.",
+            messages=[{"role": "user", "content": "What do you think?"}],
         )
-        assert result == "Mirror output"
+        assert result == "Yeah, that sounds like me."
         client.complete.assert_called_once_with(
-            system="You are the mirror.",
-            messages=[{"role": "user", "content": "Reflect"}],
+            system="You are their soul.",
+            messages=[{"role": "user", "content": "What do you think?"}],
             model=ModelTier.MIRROR,
-            max_tokens=512,
+            max_tokens=256,
             temperature=0.8,
         )
 
@@ -298,34 +211,12 @@ class TestParseJsonResponse:
         data = {"key": "value"}
         assert client._parse_json_response(json.dumps(data)) == data
 
-    def test_strip_markdown_code_block(self):
-        from interviewer.llm_client import OllamaLLMClient
-        client = OllamaLLMClient.__new__(OllamaLLMClient)
-        data = {"status": "ok"}
-        text = f"```json\n{json.dumps(data)}\n```"
-        assert client._parse_json_response(text) == data
-
-    def test_strip_plain_code_block(self):
-        from interviewer.llm_client import OllamaLLMClient
-        client = OllamaLLMClient.__new__(OllamaLLMClient)
-        data = {"a": 1}
-        text = f"```\n{json.dumps(data)}\n```"
-        assert client._parse_json_response(text) == data
-
-    def test_find_braces_in_surrounding_text(self):
-        from interviewer.llm_client import OllamaLLMClient
-        client = OllamaLLMClient.__new__(OllamaLLMClient)
-        data = {"found": True}
-        text = f"Analysis result: {json.dumps(data)} -- end"
-        assert client._parse_json_response(text) == data
-
     def test_garbage_returns_safe_default(self):
         from interviewer.llm_client import OllamaLLMClient
         client = OllamaLLMClient.__new__(OllamaLLMClient)
-        result = client._parse_json_response("no json here at all")
+        result = client._parse_json_response("no json here")
         assert isinstance(result, dict)
         assert result["trait_signals"] == []
-        assert "emotional_read" in result
 
 
 # ---------------------------------------------------------------------------

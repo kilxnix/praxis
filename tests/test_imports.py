@@ -1,26 +1,38 @@
-"""Verify the package restructure didn't break anything."""
+"""Verify the interviewer package imports work correctly."""
 
 
 def test_models_import():
     from interviewer.models import (
-        Phase, MoveType, EmotionalTemperature,
-        ConversationGraph, CartographerState, SelectedMove,
-        MOVE_RULES,
+        MoveType, Phase, EmotionalTemperature,
+        CartographerState, ConversationGraph, DimensionConfidence,
+        TraitConfidence,  # backward-compat alias
+        Contradiction, CartographerNeeds, SelectedMove,
+        OpenThread, MoveConstraints, MOVE_RULES,
     )
-    assert len(MOVE_RULES) == 8
+    assert len(MoveType) == 10
+    assert len(Phase) == 4
+    assert len(EmotionalTemperature) == 5
+    # Backward compat alias
+    assert TraitConfidence is DimensionConfidence
+
+
+def test_orchestrator_import():
+    from interviewer.orchestrator import VibSession
 
 
 def test_move_generator_import():
-    from interviewer.move_generator import select_move, get_eligible_moves
+    from interviewer.move_generator import (
+        select_move, get_eligible_moves, is_move_eligible, score_move
+    )
 
 
 def test_prompt_builder_import():
     from interviewer.prompt_builder import build_prompt, validate_response
 
 
-def test_orchestrator_import():
-    from interviewer.orchestrator import InterviewerSession
+def test_llm_client_import():
+    from interviewer.llm_client import OllamaLLMClient, ModelTier, SoulLLMClient
 
 
-def test_package_init_import():
-    from interviewer import InterviewerSession, Phase, MoveType
+def test_persona_builder_import():
+    from interviewer.persona_builder import build_soul_persona
