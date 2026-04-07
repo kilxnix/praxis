@@ -43,40 +43,39 @@ class MoveConstraints:
 MOVE_RULES: Dict[MoveType, MoveConstraints] = {
     MoveType.OPEN_DOOR: MoveConstraints(
         min_phase=1,
-        max_frequency_per_session=3,
+        max_frequency_per_session=4,
     ),
     MoveType.FOLLOW_THREAD: MoveConstraints(
         min_phase=1,
         requires_open_threads=True,
     ),
     MoveType.OBSERVATION: MoveConstraints(
-        min_phase=2,
-        min_trust_score=0.3,
-        cooldown_turns=4,
+        min_phase=1,
+        min_trust_score=0.15,
+        cooldown_turns=3,
     ),
     MoveType.HYPOTHETICAL: MoveConstraints(
         min_phase=1,
-        max_frequency_per_session=2,
-        cooldown_turns=3,
+        max_frequency_per_session=3,
+        cooldown_turns=2,
     ),
     MoveType.GENTLE_CONTRADICTION: MoveConstraints(
-        min_phase=3,
-        min_trust_score=0.6,
+        min_phase=2,
+        min_trust_score=0.4,
         requires_contradiction=True,
         max_frequency_per_session=1,
-        cooldown_turns=6,
-    ),
-    MoveType.CALLBACK: MoveConstraints(
-        min_phase=2,
-        requires_prior_sessions=True,
-        max_frequency_per_session=2,
         cooldown_turns=5,
     ),
-    MoveType.SHARE: MoveConstraints(
-        min_phase=2,
-        min_trust_score=0.3,
+    MoveType.CALLBACK: MoveConstraints(
+        min_phase=1,
         max_frequency_per_session=2,
         cooldown_turns=4,
+    ),
+    MoveType.SHARE: MoveConstraints(
+        min_phase=1,
+        min_trust_score=0.1,
+        max_frequency_per_session=3,
+        cooldown_turns=3,
     ),
     MoveType.REST: MoveConstraints(
         min_phase=1,
@@ -97,10 +96,26 @@ class EmotionalTemperature(str, Enum):
 
 
 class Phase(int, Enum):
-    FIRST_CONTACT = 1
-    PATTERN_RECOGNITION = 2
-    DEPTH = 3
-    ONGOING = 4
+    ARRIVAL = 1
+    DAILY_RHYTHM = 2
+    ATTUNED = 3
+    COMPANION = 4
+
+
+PHASE_ALIASES = {
+    "FIRST_CONTACT": Phase.ARRIVAL,
+    "PATTERN_RECOGNITION": Phase.DAILY_RHYTHM,
+    "DEPTH": Phase.ATTUNED,
+    "ONGOING": Phase.COMPANION,
+    "ARRIVAL": Phase.ARRIVAL,
+    "DAILY_RHYTHM": Phase.DAILY_RHYTHM,
+    "ATTUNED": Phase.ATTUNED,
+    "COMPANION": Phase.COMPANION,
+}
+
+def phase_from_str(s: str) -> Phase:
+    """Resolve a phase string, handling old dating-Vib names."""
+    return PHASE_ALIASES.get(s.upper(), Phase.ARRIVAL)
 
 
 @dataclass
@@ -120,8 +135,8 @@ class ConversationGraph:
     """System 1: Where are we right now in the dialogue?"""
     session_number: int = 1
     turn_number: int = 0
-    phase: Phase = Phase.FIRST_CONTACT
-    trust_score: float = 0.1
+    phase: Phase = Phase.ARRIVAL
+    attunement_confidence: float = 0.1
 
     temperature: EmotionalTemperature = EmotionalTemperature.COOL
     temperature_trend: str = "stable"

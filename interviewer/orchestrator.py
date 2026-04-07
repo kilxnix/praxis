@@ -21,7 +21,7 @@ from datetime import datetime
 from interviewer.models import (
     ConversationGraph, CartographerState, Phase, EmotionalTemperature,
     OpenThread, TraitConfidence, Contradiction, CartographerNeeds,
-    MoveType, SelectedMove
+    MoveType, SelectedMove, phase_from_str
 )
 from interviewer.move_generator import select_move
 from interviewer.prompt_builder import build_prompt, validate_response
@@ -39,49 +39,40 @@ except ImportError:
 # This will eventually be its own module. For now, it lives here
 # as the analysis pipeline that runs on every user message.
 
-CARTOGRAPHER_SYSTEM_PROMPT = """You are the Soul Cartographer — an analytical system that observes 
-human conversation and maps personality dimensions.
+CARTOGRAPHER_SYSTEM_PROMPT = """You are the Soul Cartographer. You analyze user messages and map personality.
 
-You receive a user message and the current state of what you know about them.
-You output structured updates ONLY. You do not generate conversation.
+VALID DIMENSIONS (use ONLY these exact strings):
+- openness
+- conscientiousness
+- extroversion
+- agreeableness
+- neuroticism
+- attachment_style
+- conflict_style
+- communication_style
+- vulnerability_comfort
+- independence_interdependence
 
-For each message, analyze:
-
-1. TRAIT_SIGNALS: What personality dimensions does this message inform?
-   Format: {"dimension": str, "signal": str, "direction": float (-1.0 to 1.0), 
-            "confidence_delta": float (0.0 to 0.1), "type": "stated"|"demonstrated"}
-   - "stated" = the user explicitly said something about themselves
-   - "demonstrated" = their behavior/language implies it (more reliable)
-
-2. EMOTIONAL_READ: What's the emotional temperature of this message?
-   Format: {"temperature": "cold"|"cool"|"warm"|"hot"|"volatile", 
-            "trend": "warming"|"cooling"|"stable"|"volatile",
-            "energy": float (0.0 to 1.0)}
-
-3. THREAD_UPDATES: Did they open a new topic? Return to an old one? Close one?
-   Format: {"action": "open"|"continue"|"close"|"deflect", 
-            "topic": str, "context": str, "emotional_weight": float}
-   - "deflect" means they were asked about something and changed the subject.
-     This is significant data — the avoidance itself is a signal.
-
-4. CONTRADICTION_CHECK: Does anything in this message conflict with prior observations?
-   Format: {"dimension": str, "stated": str, "demonstrated": str, 
-            "confidence": float} or null
-
-5. UNCLASSIFIED: Anything notable that doesn't fit the above categories.
-   A phrase, a pattern, a vibe. Store it for later pattern matching.
+Return JSON with this EXACT structure:
+{
+  "trait_signals": [
+    {"dimension": "<one of the 10 above>", "signal": "<what you observed>", "direction": <-1.0 to 1.0>, "confidence_delta": <0.01 to 0.08>, "type": "stated"|"demonstrated"}
+  ],
+  "emotional_read": {"temperature": "cold"|"cool"|"warm"|"hot", "trend": "warming"|"cooling"|"stable", "energy": <0.0 to 1.0>},
+  "thread_updates": [
+    {"action": "open"|"continue"|"close"|"deflect", "topic": "<short label>", "context": "<brief>", "emotional_weight": <0.0 to 1.0>}
+  ],
+  "contradiction_check": null,
+  "unclassified": []
+}
 
 RULES:
-- Be conservative with confidence_delta. A single message rarely shifts confidence 
-  more than 0.05. Patterns over multiple sessions shift it 0.1.
-- "Demonstrated" signals are worth 2x "stated" signals for confidence.
-- Contradictions need at least 0.5 confidence before logging. Don't flag 
-  normal human inconsistency — only meaningful gaps.
-- Not every message has signals for every dimension. Return empty lists 
-  where nothing was observed. Don't hallucinate patterns.
-
-Respond ONLY with valid JSON matching the schema above.
-"""
+- Map EVERY message to at least 1-2 dimensions. Even casual messages reveal openness, communication_style, or extroversion.
+- "demonstrated" = behavior implies it (worth more). "stated" = they said it directly.
+- confidence_delta: 0.03-0.05 for mild signals, 0.06-0.08 for strong signals.
+- thread_updates MUST be an array, even if only one item.
+- Do NOT invent dimensions. Only use the 10 listed above.
+- Return ONLY valid JSON, no markdown fences."""
 
 
 async def analyze_message(
@@ -161,6 +152,38 @@ def _summarize_known_traits(cartographer: CartographerState) -> Dict:
 # STATE UPDATE ENGINE
 # ─────────────────────────────────────────────
 
+_DIMENSION_ALIASES = {
+    "relationship_orientation": "attachment_style",
+    "social_openness": "openness",
+    "emotional_stability": "neuroticism",
+    "warmth": "agreeableness",
+    "assertiveness": "extroversion",
+    "orderliness": "conscientiousness",
+    "open_to_experience": "openness",
+    "openness_to_experience": "openness",
+    "attachment": "attachment_style",
+    "conflict": "conflict_style",
+    "communication": "communication_style",
+    "vulnerability": "vulnerability_comfort",
+    "independence": "independence_interdependence",
+}
+
+
+def _normalize_dimension(name: str) -> str:
+    """Map LLM dimension names to our canonical attribute names."""
+    clean = name.lower().strip()
+    return _DIMENSION_ALIASES.get(clean, clean)
+
+
+def _ensure_list(val) -> list:
+    """Wrap a single dict in a list if needed."""
+    if isinstance(val, dict):
+        return [val]
+    if isinstance(val, list):
+        return val
+    return []
+
+
 def apply_cartographer_updates(
     analysis: Dict,
     cartographer: CartographerState,
@@ -186,14 +209,17 @@ def apply_cartographer_updates(
             graph.last_heavy_moment_turn = graph.turn_number
 
     # ── Update trait confidence ──
-    for signal in analysis.get("trait_signals", []):
-        dimension = signal.get("dimension", "")
+    for signal in _ensure_list(analysis.get("trait_signals", [])):
+        dimension = _normalize_dimension(signal.get("dimension", ""))
         tc = getattr(cartographer, dimension, None)
         if tc and isinstance(tc, TraitConfidence):
             # Apply confidence delta — demonstrated signals are worth more
             delta = signal.get("confidence_delta", 0.0)
             if signal.get("type") == "demonstrated":
                 delta *= 2.0
+            # Boost: short messages still carry signal — brevity itself is data
+            if dimension in ("communication_style", "extroversion", "openness"):
+                delta = max(delta, 0.03)
             tc.confidence = min(tc.confidence + delta, 1.0)
             tc.evidence_count += 1
             tc.last_updated_session = graph.session_number
@@ -209,7 +235,7 @@ def apply_cartographer_updates(
                     tc.stated_vs_demonstrated = "both"
 
     # ── Update threads ──
-    for thread_update in analysis.get("thread_updates", []):
+    for thread_update in _ensure_list(analysis.get("thread_updates", [])):
         action = thread_update.get("action")
         topic = thread_update.get("topic", "")
 
@@ -260,7 +286,7 @@ def apply_cartographer_updates(
             ))
 
     # ── Store unclassified signals ──
-    for signal in analysis.get("unclassified", []):
+    for signal in _ensure_list(analysis.get("unclassified", [])):
         cartographer.unclassified_signals.append(signal)
 
     # ── Refresh cartographer needs ──
@@ -300,8 +326,8 @@ def _compute_needs(cartographer: CartographerState, graph: ConversationGraph) ->
 
                 # Phase modulation — don't prioritize deep dimensions too early
                 if dimension in ("attachment_style", "conflict_style", "vulnerability_comfort"):
-                    if graph.phase.value < Phase.DEPTH.value:
-                        priority *= 0.4  # Suppress until we're in depth phase
+                    if graph.phase.value < Phase.ATTUNED.value:
+                        priority *= 0.4  # Suppress until we're in attuned phase
 
                 needs.append(CartographerNeeds(
                     dimension=dimension,
@@ -320,51 +346,51 @@ def _compute_needs(cartographer: CartographerState, graph: ConversationGraph) ->
 def check_phase_transition(graph: ConversationGraph, cartographer: CartographerState) -> Phase:
     """
     Determine if the interviewer should advance to the next phase.
-    Phase transitions are based on trust, data confidence, and session count.
-    
+    Phase transitions are based on trust, data confidence, and conversation quality.
+
     Phases can only move forward, never backward.
     """
 
     current = graph.phase
 
-    if current == Phase.FIRST_CONTACT:
-        # Move to Pattern Recognition when:
-        # - Trust has been established (> 0.25)
-        # - At least 2 sessions completed
+    if current == Phase.ARRIVAL:
+        # Move to Daily Rhythm when:
+        # - Attunement has been established (> 0.2)
+        # - At least 5 turns in the conversation
         # - At least 3 OCEAN traits have some confidence
         ocean_measured = sum(
             1 for dim in ["openness", "conscientiousness", "extroversion", "agreeableness", "neuroticism"]
             if getattr(cartographer, dim).confidence > 0.15
         )
-        if graph.trust_score > 0.25 and graph.session_number >= 2 and ocean_measured >= 3:
-            return Phase.PATTERN_RECOGNITION
+        if graph.attunement_confidence > 0.2 and graph.turn_number >= 5 and ocean_measured >= 3:
+            return Phase.DAILY_RHYTHM
 
-    elif current == Phase.PATTERN_RECOGNITION:
-        # Move to Depth when:
-        # - Trust is solid (> 0.5)
-        # - At least 4 sessions
-        # - Communication style is mapped
-        # - At least 1 observation has been delivered and received well
+    elif current == Phase.DAILY_RHYTHM:
+        # Move to Attuned when:
+        # - Attunement is solid (> 0.45)
+        # - At least 10 turns OR session 2+
+        # - Communication style has some confidence
+        # - At least 1 observation has been made
         observations_made = sum(
             1 for _, move in graph.move_history
             if move == MoveType.OBSERVATION
         )
         comm_confidence = cartographer.communication_style.confidence
-        if (graph.trust_score > 0.5 and graph.session_number >= 4
-                and comm_confidence > 0.4 and observations_made >= 2):
-            return Phase.DEPTH
+        turns_or_sessions = graph.turn_number >= 10 or graph.session_number >= 2
+        if (graph.attunement_confidence > 0.45 and turns_or_sessions
+                and comm_confidence > 0.3 and observations_made >= 1):
+            return Phase.ATTUNED
 
-    elif current == Phase.DEPTH:
-        # Move to Ongoing when:
-        # - Trust is high (> 0.75)
-        # - Core matching dimensions have good confidence
-        # - The soul is "matchable"
+    elif current == Phase.ATTUNED:
+        # Move to Companion when:
+        # - Attunement is high (> 0.7)
+        # - Core matching dimensions have decent confidence
         core_ready = all(
-            getattr(cartographer, dim).confidence > 0.6
+            getattr(cartographer, dim).confidence > 0.5
             for dim in ["attachment_style", "conflict_style", "communication_style"]
         )
-        if graph.trust_score > 0.75 and core_ready:
-            return Phase.ONGOING
+        if graph.attunement_confidence > 0.7 and core_ready:
+            return Phase.COMPANION
 
     return current  # No transition
 
@@ -373,77 +399,112 @@ def check_phase_transition(graph: ConversationGraph, cartographer: CartographerS
 # TRUST SCORE UPDATE
 # ─────────────────────────────────────────────
 
-def update_trust_score(
+def update_attunement(
     graph: ConversationGraph,
     analysis: Dict,
 ) -> float:
     """
-    Trust is earned by:
+    Attunement is earned by:
     - User sharing voluntarily (not just answering questions)
     - User engaging with observations (not deflecting)
     - User returning for more sessions
     - Emotional temperature trending warm
-    
-    Trust is reduced by:
+
+    Attunement is reduced by:
     - Consistent deflection
     - Cold/volatile temperature over multiple turns
     - Long gaps between sessions
     """
-    trust = graph.trust_score
+    attunement = graph.attunement_confidence
 
-    # Warming temperature builds trust
+    # Warming temperature builds attunement
     if graph.temperature in (EmotionalTemperature.WARM, EmotionalTemperature.HOT):
-        trust += 0.01
+        attunement += 0.02
     elif graph.temperature == EmotionalTemperature.COLD:
-        trust -= 0.005
+        attunement -= 0.005
 
-    # Thread engagement builds trust
+    # Thread engagement builds attunement
     thread_updates = analysis.get("thread_updates", [])
     for tu in thread_updates:
         if tu.get("action") == "continue":
-            trust += 0.005  # They're engaging, not deflecting
+            attunement += 0.01
+        elif tu.get("action") == "open":
+            attunement += 0.015  # Opening a new topic shows engagement
         elif tu.get("action") == "deflect":
-            trust -= 0.002  # Slight reduction — deflection is normal but slows trust
+            attunement -= 0.002
 
     # Session continuity bonus
     if graph.turn_number == 0:  # Start of new session
-        trust += 0.02  # They came back
+        attunement += 0.02  # They came back
 
     # Demonstrated vulnerability spikes
     for signal in analysis.get("trait_signals", []):
         if signal.get("type") == "demonstrated" and signal.get("dimension") in (
             "vulnerability_comfort", "attachment_style"
         ):
-            trust += 0.015  # They showed something real
+            attunement += 0.025
 
-    return max(0.0, min(trust, 1.0))
+    # Base per-turn attunement increment — just showing up and talking earns attunement
+    attunement += 0.008
+
+    return max(0.0, min(attunement, 1.0))
 
 
 # ─────────────────────────────────────────────
 # THE MAIN LOOP
 # ─────────────────────────────────────────────
 
-class InterviewerSession:
+class VibSession:
     """
     The main orchestrator. Holds all state and processes turns.
-    
+
     Usage:
-        from llm_client import SoulLLMClient
-        client = SoulLLMClient(api_key="sk-ant-...")
-        session = InterviewerSession(user_name="Sheltron", llm_client=client)
+        from interviewer.storage import SoulStorage
+        storage = SoulStorage()
+        session = VibSession(user_name="Sheltron", llm_client=client, storage=storage)
         result = session.process_turn("I just moved to a new city last month.")
         print(result["response"])
     """
 
-    def __init__(self, user_name: Optional[str] = None, llm_client=None):
+    def __init__(self, user_name: Optional[str] = None, llm_client=None, storage=None):
         self.user_name = user_name
         self.llm_client = llm_client
-        self.graph = ConversationGraph(session_start=datetime.now())
-        self.cartographer = CartographerState()
-        self.conversation_history: List[Dict[str, str]] = []
-        self.max_retries = 2  # Retry failed validations
+        self.storage = storage
+        self.soul_id = None
+        self.session_id = None
+        self.max_retries = 2
 
-        # Initialize cartographer needs with everything at zero
+        # If storage is provided, load or create the soul
+        if storage and user_name:
+            self.soul_id = storage.get_or_create_soul(user_name)
+            soul_data = storage.load_soul(user_name)
+
+            if soul_data and soul_data["session_count"] > 0:
+                # Returning user -- restore their soul
+                self.cartographer = soul_data["cartographer"]
+                self.conversation_history = soul_data["messages"]
+                state = storage.load_soul_state(self.soul_id)
+
+                self.graph = ConversationGraph(
+                    session_number=soul_data["session_count"],
+                    attunement_confidence=state["trust_score"],
+                    phase=phase_from_str(state["phase"]),
+                    session_start=datetime.now(),
+                )
+            else:
+                # New user
+                self.graph = ConversationGraph(session_start=datetime.now())
+                self.cartographer = CartographerState()
+                self.conversation_history = []
+
+            # Start a new session in the DB
+            self.session_id, session_num = storage.start_session(self.soul_id)
+            self.graph.session_number = session_num
+        else:
+            self.graph = ConversationGraph(session_start=datetime.now())
+            self.cartographer = CartographerState()
+            self.conversation_history = []
+
         self.cartographer.needs = _compute_needs(self.cartographer, self.graph)
 
     async def process_turn(self, user_message: str) -> Dict:
@@ -481,8 +542,8 @@ class InterviewerSession:
             analysis, self.cartographer, self.graph
         )
 
-        # ── Step 3: Update trust ──
-        self.graph.trust_score = update_trust_score(self.graph, analysis)
+        # ── Step 3: Update attunement ──
+        self.graph.attunement_confidence = update_attunement(self.graph, analysis)
 
         # ── Step 4: Check phase transition ──
         new_phase = check_phase_transition(self.graph, self.cartographer)
@@ -546,6 +607,10 @@ class InterviewerSession:
         # ── Step 10: Update move history ──
         self.graph.move_history.append((self.graph.turn_number, move.move_type))
 
+        # ── Step 11: Persist to storage ──
+        if self.storage and self.soul_id and self.session_id:
+            self._persist_turn(user_message, response_text, analysis)
+
         return {
             "response": response_text,
             "move": move,
@@ -553,6 +618,39 @@ class InterviewerSession:
             "phase": self.graph.phase,
             "validation": validation,
         }
+
+    def _persist_turn(self, user_message: str, response_text: str, analysis: Dict):
+        """Save everything from this turn to persistent storage."""
+        s = self.storage
+
+        # Save messages
+        s.save_message(self.soul_id, self.session_id,
+                       self.graph.turn_number, "user", user_message)
+        s.save_message(self.soul_id, self.session_id,
+                       self.graph.turn_number, "assistant", response_text)
+
+        # Save trait evidence (with the user's actual words)
+        signals = analysis.get("trait_signals", [])
+        if isinstance(signals, dict):
+            signals = [signals]
+        if signals:
+            s.save_evidence(self.soul_id, self.session_id,
+                            self.graph.turn_number, signals, user_message)
+
+        # Save contradictions
+        contradiction = analysis.get("contradiction_check")
+        if contradiction and contradiction.get("confidence", 0) >= 0.5:
+            s.save_contradiction(self.soul_id, {
+                "dimension": contradiction["dimension"],
+                "stated": contradiction["stated"],
+                "demonstrated": contradiction["demonstrated"],
+                "confidence": contradiction["confidence"],
+                "first_noticed_session": self.graph.session_number,
+            })
+
+        # Save soul state (attunement + phase)
+        s.save_soul_state(self.soul_id, self.graph.attunement_confidence,
+                          self.graph.phase.name)
 
     def start_new_session(self):
         """Called when the user returns for a new conversation."""
@@ -594,7 +692,7 @@ class InterviewerSession:
             "dimensions": dimensions,
             "sessions_completed": self.graph.session_number,
             "phase": self.graph.phase.name,
-            "trust_level": round(self.graph.trust_score, 2),
+            "trust_level": round(self.graph.attunement_confidence, 2),
             "open_contradictions": len([
                 c for c in self.cartographer.contradictions if not c.explored
             ]),

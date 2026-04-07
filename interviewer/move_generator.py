@@ -39,7 +39,7 @@ def is_move_eligible(
         return False
 
     # Trust gate
-    if graph.trust_score < rules.min_trust_score:
+    if graph.attunement_confidence < rules.min_trust_score:
         return False
 
     # Thread requirement
@@ -176,21 +176,21 @@ def score_move(
     """
     score = 0.0
 
-    # ── Conversational Flow (0.0 - 0.4) ──
+    # ── Conversational Flow (0.0 - 0.3) ──
     flow_score = _score_conversational_flow(move_type, graph)
-    score += flow_score * 0.4
+    score += flow_score * 0.3
 
-    # ── Cartographer Needs (0.0 - 0.3) ──
+    # ── Cartographer Needs (0.0 - 0.2) ──
     data_score = _score_data_need(move_type, graph, cartographer)
-    score += data_score * 0.3
+    score += data_score * 0.2
 
-    # ── Variety (0.0 - 0.2) ──
+    # ── Variety (0.0 - 0.35) ──
     variety_score = _score_variety(move_type, graph)
-    score += variety_score * 0.2
+    score += variety_score * 0.35
 
-    # ── Phase Fit (0.0 - 0.1) ──
+    # ── Phase Fit (0.0 - 0.15) ──
     phase_score = _score_phase_fit(move_type, graph)
-    score += phase_score * 0.1
+    score += phase_score * 0.15
 
     return score
 
@@ -199,31 +199,61 @@ def _score_conversational_flow(move_type: MoveType, graph: ConversationGraph) ->
     """Does this move feel natural given what just happened?"""
     score = 0.5  # Baseline
 
-    # FOLLOW_THREAD is almost always a good move when threads are open
+    # ── Thread exhaustion detection ──
+    # If we've been following the same thread for 3+ turns, penalize FOLLOW_THREAD
+    # and boost topic-changing moves
+    thread_is_exhausted = False
+    if graph.current_thread and graph.move_history:
+        consecutive_follows = 0
+        for _, move in reversed(graph.move_history):
+            if move == MoveType.FOLLOW_THREAD:
+                consecutive_follows += 1
+            else:
+                break
+        thread_is_exhausted = consecutive_follows >= 3
+
+    # FOLLOW_THREAD: good when fresh, penalized when exhausted
     if move_type == MoveType.FOLLOW_THREAD and graph.current_thread:
-        score = 0.9
+        if thread_is_exhausted:
+            score = 0.3  # Time to move on
+        else:
+            score = 0.8  # Still good but not dominant
+
+    # When thread is exhausted, boost moves that change direction
+    if thread_is_exhausted:
+        if move_type == MoveType.OPEN_DOOR:
+            score = 0.85
+        elif move_type == MoveType.HYPOTHETICAL:
+            score = 0.8
+        elif move_type == MoveType.SHARE:
+            score = 0.75
+        elif move_type == MoveType.OBSERVATION:
+            score = 0.7
 
     # REST after a heavy moment is always appropriate
     if move_type == MoveType.REST and graph.temperature == EmotionalTemperature.HOT:
         score = 0.85
 
-    # CALLBACK lands well at the start of a session
-    if move_type == MoveType.CALLBACK and graph.turn_number <= 2:
-        score = 0.8
+    # CALLBACK lands well mid-conversation when there's something to reference
+    if move_type == MoveType.CALLBACK:
+        if graph.turn_number <= 2:
+            score = 0.8
+        elif graph.turn_number >= 5 and len(graph.open_threads) > 1:
+            score = 0.75  # Mid-convo callback to an earlier thread
 
-    # OPEN_DOOR is good for session starts but gets stale mid-conversation
+    # OPEN_DOOR is good for session starts and topic transitions
     if move_type == MoveType.OPEN_DOOR:
         if graph.turn_number <= 1:
             score = 0.75
-        elif graph.turn_number > 6:
-            score = 0.3  # Feels lazy if used too late
+        elif graph.turn_number > 6 and not thread_is_exhausted:
+            score = 0.3  # Feels lazy if used too late (unless thread exhausted)
 
     # OBSERVATION is strongest when the user is warm and engaged
     if move_type == MoveType.OBSERVATION:
         if graph.temperature == EmotionalTemperature.WARM:
-            score = 0.85
+            score = max(score, 0.85)
         elif graph.temperature == EmotionalTemperature.COOL:
-            score = 0.3  # Premature — they'll feel analyzed
+            score = 0.3
 
     # GENTLE_CONTRADICTION should never follow another heavy move
     if move_type == MoveType.GENTLE_CONTRADICTION:
@@ -240,14 +270,17 @@ def _score_conversational_flow(move_type: MoveType, graph: ConversationGraph) ->
             1 for turn, move in graph.move_history[-6:]
             if move == MoveType.SHARE
         )
-        score = 0.7 if recent_shares == 0 else 0.3
+        if recent_shares == 0:
+            score = max(score, 0.7)
+        else:
+            score = min(score, 0.3)
 
-    # HYPOTHETICAL is good for energy dips — it's playful
+    # HYPOTHETICAL is good for energy dips and topic transitions
     if move_type == MoveType.HYPOTHETICAL:
         if graph.energy_level < 0.5 and graph.temperature != EmotionalTemperature.HOT:
-            score = 0.75
-        else:
-            score = 0.5
+            score = max(score, 0.75)
+        elif not thread_is_exhausted:
+            score = max(score, 0.5)
 
     return min(score, 1.0)
 
@@ -317,17 +350,17 @@ def _score_variety(move_type: MoveType, graph: ConversationGraph) -> float:
 def _score_phase_fit(move_type: MoveType, graph: ConversationGraph) -> float:
     """Some moves are more natural in certain phases."""
     phase_preferences = {
-        Phase.FIRST_CONTACT: {
-            MoveType.OPEN_DOOR: 0.9,
-            MoveType.FOLLOW_THREAD: 0.8,
-            MoveType.HYPOTHETICAL: 0.7,
-            MoveType.REST: 0.6,
-            MoveType.SHARE: 0.3,
-            MoveType.OBSERVATION: 0.2,
-            MoveType.CALLBACK: 0.0,
+        Phase.ARRIVAL: {
+            MoveType.OPEN_DOOR: 0.8,
+            MoveType.FOLLOW_THREAD: 0.7,
+            MoveType.HYPOTHETICAL: 0.8,
+            MoveType.REST: 0.5,
+            MoveType.SHARE: 0.7,
+            MoveType.OBSERVATION: 0.6,
+            MoveType.CALLBACK: 0.5,
             MoveType.GENTLE_CONTRADICTION: 0.0,
         },
-        Phase.PATTERN_RECOGNITION: {
+        Phase.DAILY_RHYTHM: {
             MoveType.OBSERVATION: 0.9,
             MoveType.FOLLOW_THREAD: 0.8,
             MoveType.CALLBACK: 0.8,
@@ -337,7 +370,7 @@ def _score_phase_fit(move_type: MoveType, graph: ConversationGraph) -> float:
             MoveType.REST: 0.5,
             MoveType.GENTLE_CONTRADICTION: 0.2,
         },
-        Phase.DEPTH: {
+        Phase.ATTUNED: {
             MoveType.GENTLE_CONTRADICTION: 0.9,
             MoveType.FOLLOW_THREAD: 0.9,
             MoveType.OBSERVATION: 0.8,
@@ -347,7 +380,7 @@ def _score_phase_fit(move_type: MoveType, graph: ConversationGraph) -> float:
             MoveType.REST: 0.6,
             MoveType.OPEN_DOOR: 0.3,
         },
-        Phase.ONGOING: {
+        Phase.COMPANION: {
             MoveType.FOLLOW_THREAD: 0.8,
             MoveType.CALLBACK: 0.8,
             MoveType.OBSERVATION: 0.7,
@@ -448,10 +481,10 @@ def _build_move_context(
             thread_ref = best_thread.topic
             prompt_context = (
                 f"The user mentioned '{best_thread.topic}' — context: '{best_thread.context}'. "
-                f"Stay with this. Don't ask a new question. Go deeper into what they were "
-                f"saying. Use their own words as a bridge. If this topic had emotional weight "
-                f"(weight: {best_thread.emotional_weight}), match that weight in your response — "
-                f"don't trivialize it but don't dramatize it either."
+                f"Stay with this. Use their own words. Ask the practical next question, not the "
+                f"emotional one. 'What happened next?' beats 'How did that feel?' "
+                f"If they've been giving short answers on this topic, keep your response equally short. "
+                f"Don't dramatize. Don't add metaphors. Match their tone exactly."
             )
         else:
             prompt_context = (
@@ -465,11 +498,11 @@ def _build_move_context(
             top_need = max(cartographer.needs, key=lambda n: n.priority)
             target_dimension = top_need.dimension
         prompt_context = (
-            f"Share an observation about a pattern you've noticed in the user's behavior "
-            f"or speech across this conversation (or across sessions). Frame it as curiosity, "
-            f"not diagnosis. Use language like 'I've noticed...' or 'Something I keep coming "
-            f"back to is...' — never 'You are [label].' Let the user respond to it. "
-            f"Their reaction — whether they lean in, deflect, or correct you — is the real data."
+            f"Share something specific you've noticed about how the user talks or what "
+            f"they focus on. Be direct and concrete — not abstract. One sentence. "
+            f"Example: 'You describe your job like it's something that happened to you, "
+            f"not something you chose.' Do NOT use 'I've noticed...' or 'Something I keep "
+            f"coming back to is...' — those sound clinical. Just say it plainly."
         )
 
     elif move_type == MoveType.HYPOTHETICAL:
@@ -537,12 +570,11 @@ def _build_move_context(
 
     elif move_type == MoveType.SHARE:
         prompt_context = (
-            "Share an observation about human nature, relationships, or life that creates "
-            "a moment of reciprocity. NOT fake vulnerability. NOT 'as an AI I feel...' "
-            "Something genuine like: 'Most people I talk to describe love as finding someone "
-            "who completes them, but the happiest ones seem to be people who were already "
-            "whole.' This reframes the dynamic from interview to dialogue. "
-            "The user's response to your share tells you how they engage with ideas."
+            "Offer a direct perspective or opinion that shifts the conversation. Not a "
+            "sweeping observation about human nature. Something specific and maybe a little "
+            "provocative. Like: 'I think people who say they hate drama are usually the "
+            "common denominator in it.' Keep it to one sentence, then let them react. "
+            "This is a conversation, not a TED talk."
         )
 
     elif move_type == MoveType.REST:

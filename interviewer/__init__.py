@@ -2,4 +2,4 @@ from interviewer.models import (
     Phase, MoveType, EmotionalTemperature,
     ConversationGraph, CartographerState, SelectedMove,
 )
-from interviewer.orchestrator import InterviewerSession
+from interviewer.orchestrator import VibSession
