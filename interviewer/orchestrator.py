@@ -20,8 +20,8 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from interviewer.models import (
     ConversationGraph, CartographerState, Phase, EmotionalTemperature,
-    OpenThread, TraitConfidence, Contradiction, CartographerNeeds,
-    MoveType, SelectedMove, phase_from_str
+    OpenThread, DimensionConfidence, TraitConfidence, Contradiction,
+    CartographerNeeds, MoveType, SelectedMove, phase_from_str
 )
 from interviewer.move_generator import select_move
 from interviewer.prompt_builder import build_prompt, validate_response
@@ -39,19 +39,19 @@ except ImportError:
 # This will eventually be its own module. For now, it lives here
 # as the analysis pipeline that runs on every user message.
 
-CARTOGRAPHER_SYSTEM_PROMPT = """You are the Soul Cartographer. You analyze user messages and map personality.
+CARTOGRAPHER_SYSTEM_PROMPT = """You are the Soul Cartographer. You analyze user messages and map wellness state.
 
 VALID DIMENSIONS (use ONLY these exact strings):
-- openness
-- conscientiousness
-- extroversion
-- agreeableness
-- neuroticism
-- attachment_style
-- conflict_style
-- communication_style
-- vulnerability_comfort
-- independence_interdependence
+- mood_baseline
+- mood_volatility
+- sleep_pattern
+- hunger_relationship
+- food_preferences
+- risk_window_pattern
+- movement_pattern
+- social_pattern
+- stressor_signals
+- response_style
 
 Return JSON with this EXACT structure:
 {
@@ -67,7 +67,7 @@ Return JSON with this EXACT structure:
 }
 
 RULES:
-- Map EVERY message to at least 1-2 dimensions. Even casual messages reveal openness, communication_style, or extroversion.
+- Map messages to wellness dimensions. Mood references -> mood_baseline/mood_volatility. Food mentions -> hunger_relationship/food_preferences. Sleep mentions -> sleep_pattern. Activity -> movement_pattern. Social mentions -> social_pattern.
 - "demonstrated" = behavior implies it (worth more). "stated" = they said it directly.
 - confidence_delta: 0.03-0.05 for mild signals, 0.06-0.08 for strong signals.
 - thread_updates MUST be an array, even if only one item.
@@ -131,13 +131,9 @@ async def analyze_message(
 
 def _summarize_known_traits(cartographer: CartographerState) -> Dict:
     """Summarize what we know for the analysis prompt context."""
+    from interviewer.storage import DIMENSIONS
     traits = {}
-    for dimension in [
-        "openness", "conscientiousness", "extroversion",
-        "agreeableness", "neuroticism", "attachment_style",
-        "conflict_style", "communication_style",
-        "vulnerability_comfort", "independence_interdependence"
-    ]:
+    for dimension in DIMENSIONS:
         tc = getattr(cartographer, dimension, None)
         if tc and tc.confidence > 0.1:
             traits[dimension] = {
@@ -153,19 +149,29 @@ def _summarize_known_traits(cartographer: CartographerState) -> Dict:
 # ─────────────────────────────────────────────
 
 _DIMENSION_ALIASES = {
-    "relationship_orientation": "attachment_style",
-    "social_openness": "openness",
-    "emotional_stability": "neuroticism",
-    "warmth": "agreeableness",
-    "assertiveness": "extroversion",
-    "orderliness": "conscientiousness",
-    "open_to_experience": "openness",
-    "openness_to_experience": "openness",
-    "attachment": "attachment_style",
-    "conflict": "conflict_style",
-    "communication": "communication_style",
-    "vulnerability": "vulnerability_comfort",
-    "independence": "independence_interdependence",
+    "mood": "mood_baseline",
+    "sleep": "sleep_pattern",
+    "hunger": "hunger_relationship",
+    "food": "food_preferences",
+    "risk": "risk_window_pattern",
+    "movement": "movement_pattern",
+    "exercise": "movement_pattern",
+    "social": "social_pattern",
+    "stress": "stressor_signals",
+    "stressors": "stressor_signals",
+    "style": "response_style",
+    "communication": "response_style",
+    # Old personality dims -> closest wellness equivalent
+    "openness": "mood_baseline",
+    "conscientiousness": "sleep_pattern",
+    "extroversion": "social_pattern",
+    "agreeableness": "response_style",
+    "neuroticism": "mood_volatility",
+    "attachment_style": "hunger_relationship",
+    "conflict_style": "stressor_signals",
+    "communication_style": "response_style",
+    "vulnerability_comfort": "mood_baseline",
+    "independence_interdependence": "social_pattern",
 }
 
 
@@ -218,7 +224,7 @@ def apply_cartographer_updates(
             if signal.get("type") == "demonstrated":
                 delta *= 2.0
             # Boost: short messages still carry signal — brevity itself is data
-            if dimension in ("communication_style", "extroversion", "openness"):
+            if dimension in ("response_style", "mood_baseline", "hunger_relationship"):
                 delta = max(delta, 0.03)
             tc.confidence = min(tc.confidence + delta, 1.0)
             tc.evidence_count += 1
@@ -298,34 +304,34 @@ def apply_cartographer_updates(
 def _compute_needs(cartographer: CartographerState, graph: ConversationGraph) -> List[CartographerNeeds]:
     """
     Determine what the Cartographer still needs, prioritized by
-    importance for matching and current confidence gaps.
+    wellness importance and current confidence gaps.
     """
     needs = []
 
-    # Define matching importance per dimension
-    matching_importance = {
-        "attachment_style": 0.95,          # Critical for relationship success
-        "conflict_style": 0.9,             # How fights go determines everything
-        "communication_style": 0.85,       # Day-to-day compatibility
-        "vulnerability_comfort": 0.8,      # Emotional intimacy capacity
-        "independence_interdependence": 0.8,
-        "openness": 0.7,
-        "neuroticism": 0.7,
-        "conscientiousness": 0.6,
-        "extroversion": 0.6,
-        "agreeableness": 0.55,
+    # Define wellness importance per dimension
+    wellness_importance = {
+        "mood_baseline": 0.95,
+        "hunger_relationship": 0.9,
+        "sleep_pattern": 0.85,
+        "mood_volatility": 0.8,
+        "risk_window_pattern": 0.8,
+        "movement_pattern": 0.7,
+        "social_pattern": 0.7,
+        "food_preferences": 0.6,
+        "stressor_signals": 0.6,
+        "response_style": 0.55,
     }
 
-    for dimension, importance in matching_importance.items():
+    for dimension, importance in wellness_importance.items():
         tc = getattr(cartographer, dimension, None)
-        if tc and isinstance(tc, TraitConfidence):
+        if tc and isinstance(tc, DimensionConfidence):
             if tc.confidence < 0.7:  # Still need more data
                 # Priority = importance * (1 - confidence)
                 # High importance + low confidence = highest priority
                 priority = importance * (1.0 - tc.confidence)
 
                 # Phase modulation — don't prioritize deep dimensions too early
-                if dimension in ("attachment_style", "conflict_style", "vulnerability_comfort"):
+                if dimension in ("risk_window_pattern", "stressor_signals"):
                     if graph.phase.value < Phase.ATTUNED.value:
                         priority *= 0.4  # Suppress until we're in attuned phase
 
@@ -357,37 +363,38 @@ def check_phase_transition(graph: ConversationGraph, cartographer: CartographerS
         # Move to Daily Rhythm when:
         # - Attunement has been established (> 0.2)
         # - At least 5 turns in the conversation
-        # - At least 3 OCEAN traits have some confidence
-        ocean_measured = sum(
-            1 for dim in ["openness", "conscientiousness", "extroversion", "agreeableness", "neuroticism"]
+        # - At least 3 core wellness dimensions have some confidence
+        core_measured = sum(
+            1 for dim in ["mood_baseline", "sleep_pattern", "hunger_relationship",
+                          "movement_pattern", "social_pattern"]
             if getattr(cartographer, dim).confidence > 0.15
         )
-        if graph.attunement_confidence > 0.2 and graph.turn_number >= 5 and ocean_measured >= 3:
+        if graph.attunement_confidence > 0.2 and graph.turn_number >= 5 and core_measured >= 3:
             return Phase.DAILY_RHYTHM
 
     elif current == Phase.DAILY_RHYTHM:
         # Move to Attuned when:
         # - Attunement is solid (> 0.45)
         # - At least 10 turns OR session 2+
-        # - Communication style has some confidence
+        # - Response style has some confidence
         # - At least 1 observation has been made
         observations_made = sum(
             1 for _, move in graph.move_history
             if move == MoveType.OBSERVATION
         )
-        comm_confidence = cartographer.communication_style.confidence
+        style_confidence = cartographer.response_style.confidence
         turns_or_sessions = graph.turn_number >= 10 or graph.session_number >= 2
         if (graph.attunement_confidence > 0.45 and turns_or_sessions
-                and comm_confidence > 0.3 and observations_made >= 1):
+                and style_confidence > 0.3 and observations_made >= 1):
             return Phase.ATTUNED
 
     elif current == Phase.ATTUNED:
         # Move to Companion when:
         # - Attunement is high (> 0.7)
-        # - Core matching dimensions have decent confidence
+        # - Core wellness dimensions have decent confidence
         core_ready = all(
             getattr(cartographer, dim).confidence > 0.5
-            for dim in ["attachment_style", "conflict_style", "communication_style"]
+            for dim in ["mood_baseline", "hunger_relationship", "sleep_pattern"]
         )
         if graph.attunement_confidence > 0.7 and core_ready:
             return Phase.COMPANION
@@ -440,7 +447,7 @@ def update_attunement(
     # Demonstrated vulnerability spikes
     for signal in analysis.get("trait_signals", []):
         if signal.get("type") == "demonstrated" and signal.get("dimension") in (
-            "vulnerability_comfort", "attachment_style"
+            "mood_baseline", "hunger_relationship"
         ):
             attunement += 0.025
 
@@ -663,36 +670,36 @@ class VibSession:
 
     def get_soul_readiness(self) -> Dict:
         """
-        How ready is this user's Soul for matching?
+        How ready is this user's Soul for wellness attunement?
         Returns a readiness report.
         """
         dimensions = {
-            "attachment_style": self.cartographer.attachment_style.confidence,
-            "conflict_style": self.cartographer.conflict_style.confidence,
-            "communication_style": self.cartographer.communication_style.confidence,
-            "vulnerability_comfort": self.cartographer.vulnerability_comfort.confidence,
-            "independence_interdependence": self.cartographer.independence_interdependence.confidence,
-            "openness": self.cartographer.openness.confidence,
-            "conscientiousness": self.cartographer.conscientiousness.confidence,
-            "extroversion": self.cartographer.extroversion.confidence,
-            "agreeableness": self.cartographer.agreeableness.confidence,
-            "neuroticism": self.cartographer.neuroticism.confidence,
+            "mood_baseline": self.cartographer.mood_baseline.confidence,
+            "mood_volatility": self.cartographer.mood_volatility.confidence,
+            "sleep_pattern": self.cartographer.sleep_pattern.confidence,
+            "hunger_relationship": self.cartographer.hunger_relationship.confidence,
+            "food_preferences": self.cartographer.food_preferences.confidence,
+            "risk_window_pattern": self.cartographer.risk_window_pattern.confidence,
+            "movement_pattern": self.cartographer.movement_pattern.confidence,
+            "social_pattern": self.cartographer.social_pattern.confidence,
+            "stressor_signals": self.cartographer.stressor_signals.confidence,
+            "response_style": self.cartographer.response_style.confidence,
         }
 
         avg_confidence = sum(dimensions.values()) / len(dimensions)
         core_ready = all(
             dimensions[d] > 0.6
-            for d in ["attachment_style", "conflict_style", "communication_style"]
+            for d in ["mood_baseline", "hunger_relationship", "sleep_pattern"]
         )
 
         return {
             "overall_confidence": round(avg_confidence, 2),
             "core_dimensions_ready": core_ready,
-            "matchable": core_ready and avg_confidence > 0.5,
+            "attuned": core_ready and avg_confidence > 0.5,
             "dimensions": dimensions,
             "sessions_completed": self.graph.session_number,
             "phase": self.graph.phase.name,
-            "trust_level": round(self.graph.attunement_confidence, 2),
+            "attunement_level": round(self.graph.attunement_confidence, 2),
             "open_contradictions": len([
                 c for c in self.cartographer.contradictions if not c.explored
             ]),

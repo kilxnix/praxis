@@ -156,13 +156,16 @@ class ConversationGraph:
 # ─────────────────────────────────────────────
 
 @dataclass
-class TraitConfidence:
-    """A single trait measurement with confidence tracking."""
+class DimensionConfidence:
+    """A single dimension measurement with confidence tracking."""
     value: Optional[float] = None
     confidence: float = 0.0
     evidence_count: int = 0
     last_updated_session: int = 0
     stated_vs_demonstrated: Optional[str] = None
+
+# Backward compat alias
+TraitConfidence = DimensionConfidence
 
 
 @dataclass
@@ -187,18 +190,21 @@ class CartographerNeeds:
 
 @dataclass
 class CartographerState:
-    """System 2: What do we know, how sure are we, and what do we still need?"""
-    openness: TraitConfidence = field(default_factory=TraitConfidence)
-    conscientiousness: TraitConfidence = field(default_factory=TraitConfidence)
-    extroversion: TraitConfidence = field(default_factory=TraitConfidence)
-    agreeableness: TraitConfidence = field(default_factory=TraitConfidence)
-    neuroticism: TraitConfidence = field(default_factory=TraitConfidence)
+    """System 2: What do we know about this user's wellness state?"""
+    mood_baseline: DimensionConfidence = field(default_factory=DimensionConfidence)
+    mood_volatility: DimensionConfidence = field(default_factory=DimensionConfidence)
+    sleep_pattern: DimensionConfidence = field(default_factory=DimensionConfidence)
+    hunger_relationship: DimensionConfidence = field(default_factory=DimensionConfidence)
+    food_preferences: DimensionConfidence = field(default_factory=DimensionConfidence)
+    risk_window_pattern: DimensionConfidence = field(default_factory=DimensionConfidence)
+    movement_pattern: DimensionConfidence = field(default_factory=DimensionConfidence)
+    social_pattern: DimensionConfidence = field(default_factory=DimensionConfidence)
+    stressor_signals: DimensionConfidence = field(default_factory=DimensionConfidence)
+    response_style: DimensionConfidence = field(default_factory=DimensionConfidence)
 
-    attachment_style: TraitConfidence = field(default_factory=TraitConfidence)
-    conflict_style: TraitConfidence = field(default_factory=TraitConfidence)
-    communication_style: TraitConfidence = field(default_factory=TraitConfidence)
-    vulnerability_comfort: TraitConfidence = field(default_factory=TraitConfidence)
-    independence_interdependence: TraitConfidence = field(default_factory=TraitConfidence)
+    # Post-binge protocol state
+    post_binge_mode: Optional[str] = None   # None | "acute" | "soft_morning"
+    post_binge_until: Optional[datetime] = None
 
     contradictions: List[Contradiction] = field(default_factory=list)
     needs: List[CartographerNeeds] = field(default_factory=list)

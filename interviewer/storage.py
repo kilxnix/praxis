@@ -26,10 +26,10 @@ from interviewer.models import (
 
 
 DIMENSIONS = [
-    "openness", "conscientiousness", "extroversion", "agreeableness",
-    "neuroticism", "attachment_style", "conflict_style",
-    "communication_style", "vulnerability_comfort",
-    "independence_interdependence",
+    "mood_baseline", "mood_volatility", "sleep_pattern",
+    "hunger_relationship", "food_preferences", "risk_window_pattern",
+    "movement_pattern", "social_pattern", "stressor_signals",
+    "response_style",
 ]
 
 
@@ -383,7 +383,7 @@ class SoulStorage:
             delta = e["confidence_delta"]
             if e["signal_type"] == "demonstrated":
                 delta *= 2.0
-            if dimension in ("communication_style", "extroversion", "openness"):
+            if dimension in ("response_style", "mood_baseline", "hunger_relationship"):
                 delta = max(delta, 0.03)
 
             tc.confidence = min(tc.confidence + delta, 1.0)
