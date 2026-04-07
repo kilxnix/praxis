@@ -1,234 +1,324 @@
-/**
- * Vib — Frontend Application
- * Vanilla JS WebSocket chat client for The Soul interviewer + Soul Mirror.
- */
+/* -----------------------------------------------
+   Vib -- Agentic Dating Frontend
+   ----------------------------------------------- */
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+(function () {
+    'use strict';
 
-let ws = null;
-let userName = "";
-let currentMode = "interview";
+    let ws = null;
+    let sessionData = null;
+    let inMirrorMode = false;
+    let userName = null;
 
-const welcomeScreen = $("#welcome-screen");
-const chatScreen = $("#chat-screen");
-const nameForm = $("#name-form");
-const nameInput = $("#name-input");
-const messageForm = $("#message-form");
-const messageInput = $("#message-input");
-const messagesContainer = $("#messages");
-const modeIndicator = $("#mode-indicator");
-const btnStatus = $("#btn-status");
-const btnMirror = $("#btn-mirror");
-const statusOverlay = $("#status-overlay");
-const statusBody = $("#status-body");
-const btnCloseStatus = $("#btn-close-status");
+    // -- DOM refs --
 
-function connect() {
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    const entryScreen = document.getElementById('entry-screen');
+    const chatScreen = document.getElementById('chat-screen');
+    const mirrorScreen = document.getElementById('mirror-screen');
+    const nameInput = document.getElementById('name-input');
+    const startBtn = document.getElementById('start-btn');
+    const phaseIndicator = document.getElementById('phase-indicator');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const soulBtn = document.getElementById('soul-btn');
+    const soulOverlay = document.getElementById('soul-overlay');
+    const closeSoul = document.getElementById('close-soul');
+    const soulBody = document.getElementById('soul-body');
+    const mirrorSection = document.getElementById('mirror-section');
+    const mirrorBtn = document.getElementById('mirror-btn');
+    const mirrorMessages = document.getElementById('mirror-messages');
+    const mirrorForm = document.getElementById('mirror-form');
+    const mirrorInput = document.getElementById('mirror-input');
+    const exitMirrorBtn = document.getElementById('exit-mirror-btn');
 
-    ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "start", name: userName }));
+    // -- Phase labels --
+
+    const PHASE_LABELS = {
+        'ARRIVAL': 'getting started',
+        'DAILY_RHYTHM': 'learning your rhythm',
+        'ATTUNED': 'attuned',
+        'COMPANION': 'companion',
     };
 
-    ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
-    };
+    // -- WebSocket --
 
-    ws.onclose = () => {
-        addSystemMessage("Connection lost. Refresh to reconnect.");
-    };
-}
+    function connect() {
+        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+        ws = new WebSocket(protocol + '://' + location.host + '/ws');
 
-function handleMessage(msg) {
-    removeTypingIndicator();
+        ws.onopen = function () {
+            // Connection ready, wait for user to start
+        };
 
-    switch (msg.type) {
-        case "opening":
-            addSoulMessage(msg.text);
-            break;
+        ws.onmessage = function (event) {
+            var msg = JSON.parse(event.data);
+            handleMessage(msg);
+        };
 
-        case "response":
-            if (msg.mode === "mirror") {
-                addMirrorMessage(msg.text);
-            } else {
-                addSoulMessage(msg.text);
-            }
-            break;
+        ws.onclose = function () {
+            setTimeout(connect, 2000);
+        };
+    }
 
-        case "mode_change":
-            currentMode = msg.mode;
-            updateModeUI();
-            if (msg.text) {
-                if (msg.mode === "mirror") {
-                    addMirrorMessage(msg.text);
-                } else {
-                    addSoulMessage(msg.text);
+    function send(data) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(data));
+        }
+    }
+
+    // -- Message handler --
+
+    function handleMessage(msg) {
+        switch (msg.type) {
+            case 'started':
+                sessionData = msg.data;
+                updatePhase(msg.data.phase);
+                addMessage(msg.greeting, 'vib');
+                if (!msg.has_llm) {
+                    addSystemMessage('Running without LLM -- responses will be limited');
                 }
-            }
-            break;
+                break;
 
-        case "status":
-            showStatus(msg.data);
-            break;
-    }
-}
+            case 'response':
+                sessionData = msg.data;
+                updatePhase(msg.data.phase);
+                addMessage(msg.text, 'vib');
+                enableInput();
+                break;
 
-function addSoulMessage(text) {
-    const div = document.createElement("div");
-    div.className = "message soul";
-    div.textContent = text;
-    messagesContainer.appendChild(div);
-    scrollToBottom();
-}
+            case 'status':
+                sessionData = msg.data;
+                renderSoulPanel(msg.data);
+                break;
 
-function addMirrorMessage(text) {
-    const div = document.createElement("div");
-    div.className = "message mirror";
-    div.textContent = text;
-    messagesContainer.appendChild(div);
-    scrollToBottom();
-}
+            case 'mirror_started':
+                sessionData = msg.data;
+                enterMirrorUI();
+                break;
 
-function addUserMessage(text) {
-    const div = document.createElement("div");
-    div.className = "message user";
-    div.textContent = text;
-    messagesContainer.appendChild(div);
-    scrollToBottom();
-}
+            case 'mirror_response':
+                addMirrorMessage(msg.text, 'soul');
+                enableMirrorInput();
+                break;
 
-function addSystemMessage(text) {
-    const div = document.createElement("div");
-    div.className = "message system";
-    div.textContent = text;
-    messagesContainer.appendChild(div);
-    scrollToBottom();
-}
+            case 'mirror_exited':
+                sessionData = msg.data;
+                exitMirrorUI();
+                break;
 
-function showTypingIndicator() {
-    if ($("#typing")) return;
-    const div = document.createElement("div");
-    div.id = "typing";
-    div.className = "typing-indicator";
-    div.innerHTML = "<span>.</span><span>.</span><span>.</span>";
-    messagesContainer.appendChild(div);
-    scrollToBottom();
-}
+            case 'entry_logged':
+                console.log('Entry logged:', msg.payload.entry_id);
+                break;
 
-function removeTypingIndicator() {
-    const el = $("#typing");
-    if (el) el.remove();
-}
-
-function scrollToBottom() {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function updateModeUI() {
-    if (currentMode === "mirror") {
-        modeIndicator.textContent = "your soul";
-        modeIndicator.classList.add("mirror");
-        btnMirror.textContent = "back to interview";
-        messageInput.placeholder = "talk to your soul...";
-    } else {
-        modeIndicator.textContent = "the soul";
-        modeIndicator.classList.remove("mirror");
-        btnMirror.textContent = "meet your soul";
-        messageInput.placeholder = "say something...";
-    }
-}
-
-function showStatus(data) {
-    let html = "";
-
-    const dims = data.dimensions || {};
-    const labels = {
-        attachment_style: "attachment",
-        conflict_style: "conflict style",
-        communication_style: "communication",
-        vulnerability_comfort: "vulnerability",
-        independence_interdependence: "independence",
-        openness: "openness",
-        conscientiousness: "conscientiousness",
-        extroversion: "extroversion",
-        agreeableness: "agreeableness",
-        neuroticism: "neuroticism",
-    };
-
-    for (const [key, label] of Object.entries(labels)) {
-        const val = dims[key] || 0;
-        const pct = Math.round(val * 100);
-        html += `
-            <div class="dimension-row">
-                <span class="dimension-label">${label}</span>
-                <div class="dimension-bar-bg">
-                    <div class="dimension-bar" style="width: ${pct}%"></div>
-                </div>
-                <span class="dimension-value">${pct}%</span>
-            </div>
-        `;
+            case 'error':
+                addSystemMessage(msg.message);
+                enableInput();
+                break;
+        }
     }
 
-    html += `
-        <div class="status-meta">
-            phase: ${data.phase || "—"}<br>
-            trust: ${Math.round((data.trust_level || 0) * 100)}%<br>
-            matchable: ${data.matchable ? "yes" : "not yet"}<br>
-            ${data.open_contradictions > 0 ? `contradictions: ${data.open_contradictions} unresolved` : ""}
-        </div>
-    `;
+    // -- UI helpers --
 
-    statusBody.innerHTML = html;
-    statusOverlay.classList.remove("hidden");
-}
+    function showScreen(screen) {
+        entryScreen.classList.remove('active');
+        chatScreen.classList.remove('active');
+        mirrorScreen.classList.remove('active');
+        screen.classList.add('active');
+    }
 
-nameForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    userName = nameInput.value.trim() || "friend";
-    welcomeScreen.classList.remove("active");
-    chatScreen.classList.add("active");
+    function updatePhase(phase) {
+        phaseIndicator.textContent = PHASE_LABELS[phase] || phase.toLowerCase();
+    }
+
+    function addMessage(text, sender) {
+        var div = document.createElement('div');
+        div.className = 'msg msg-' + sender;
+
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.textContent = text;
+
+        div.appendChild(bubble);
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addSystemMessage(text) {
+        var div = document.createElement('div');
+        div.className = 'msg msg-system';
+        div.textContent = text;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addMirrorMessage(text, sender) {
+        var div = document.createElement('div');
+        div.className = 'msg msg-' + sender;
+
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.textContent = text;
+
+        div.appendChild(bubble);
+        mirrorMessages.appendChild(div);
+        mirrorMessages.scrollTop = mirrorMessages.scrollHeight;
+    }
+
+    function disableInput() {
+        chatInput.disabled = true;
+        chatForm.querySelector('.btn-send').disabled = true;
+    }
+
+    function enableInput() {
+        chatInput.disabled = false;
+        chatForm.querySelector('.btn-send').disabled = false;
+        chatInput.focus();
+    }
+
+    function disableMirrorInput() {
+        mirrorInput.disabled = true;
+        mirrorForm.querySelector('.btn-send').disabled = true;
+    }
+
+    function enableMirrorInput() {
+        mirrorInput.disabled = false;
+        mirrorForm.querySelector('.btn-send').disabled = false;
+        mirrorInput.focus();
+    }
+
+    // -- Soul panel --
+
+    function renderSoulPanel(data) {
+        var r = data.readiness;
+        var html = '';
+
+        // Overall readiness
+        html += '<div class="soul-readiness">';
+        html += '<div class="readiness-label">soul readiness</div>';
+        html += '<div class="readiness-bar-track">';
+        html += '<div class="readiness-bar-fill" style="width:' + (r.overall_confidence * 100) + '%"></div>';
+        html += '</div>';
+        html += '<div class="readiness-pct">' + (r.overall_confidence * 100).toFixed(0) + '%</div>';
+        html += '</div>';
+
+        // Session info
+        html += '<div class="soul-meta">';
+        html += 'Phase: ' + (PHASE_LABELS[r.phase] || r.phase) + '<br>';
+        html += 'Attunement: ' + (r.attunement_level * 100).toFixed(0) + '%<br>';
+        html += 'Sessions: ' + r.sessions_completed;
+        if (r.open_contradictions > 0) {
+            html += '<br>Contradictions: ' + r.open_contradictions;
+        }
+        html += '</div>';
+
+        // Dimensions
+        html += '<div class="soul-dimensions">';
+        var dims = r.dimensions;
+        for (var dim in dims) {
+            var pct = (dims[dim] * 100).toFixed(0);
+            var label = dim.replace(/_/g, ' ');
+            html += '<div class="dim-row">';
+            html += '<span class="dim-name">' + label + '</span>';
+            html += '<div class="dim-track"><div class="dim-fill" style="width:' + pct + '%"></div></div>';
+            html += '<span class="dim-pct">' + pct + '%</span>';
+            html += '</div>';
+        }
+        html += '</div>';
+
+        soulBody.innerHTML = html;
+
+        // Show mirror button if matchable or if overall confidence > 30%
+        if (r.matchable || r.overall_confidence > 0.3) {
+            mirrorSection.classList.remove('hidden');
+        } else {
+            mirrorSection.classList.add('hidden');
+        }
+
+        soulOverlay.classList.remove('hidden');
+    }
+
+    // -- Mirror mode --
+
+    function enterMirrorUI() {
+        inMirrorMode = true;
+        soulOverlay.classList.add('hidden');
+        showScreen(mirrorScreen);
+        mirrorMessages.innerHTML = '';
+        addMirrorMessage("Hey. I'm your Soul -- a version of you built from everything we've talked about. Ask me anything.", 'soul');
+        mirrorInput.focus();
+    }
+
+    function exitMirrorUI() {
+        inMirrorMode = false;
+        showScreen(chatScreen);
+        chatInput.focus();
+    }
+
+    // -- Event listeners --
+
+    startBtn.addEventListener('click', function () {
+        var name = nameInput.value.trim();
+        if (!name) {
+            nameInput.focus();
+            return;
+        }
+        userName = name;
+        send({ type: 'start', name: name });
+        showScreen(chatScreen);
+    });
+
+    nameInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            startBtn.click();
+        }
+    });
+
+    chatForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var text = chatInput.value.trim();
+        if (!text) return;
+
+        addMessage(text, 'user');
+        send({ type: 'message', text: text });
+        chatInput.value = '';
+        disableInput();
+    });
+
+    soulBtn.addEventListener('click', function () {
+        send({ type: 'status' });
+    });
+
+    closeSoul.addEventListener('click', function () {
+        soulOverlay.classList.add('hidden');
+    });
+
+    soulOverlay.addEventListener('click', function (e) {
+        if (e.target === soulOverlay) {
+            soulOverlay.classList.add('hidden');
+        }
+    });
+
+    mirrorBtn.addEventListener('click', function () {
+        send({ type: 'enter_mirror' });
+    });
+
+    mirrorForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var text = mirrorInput.value.trim();
+        if (!text) return;
+
+        addMirrorMessage(text, 'user');
+        send({ type: 'mirror_message', text: text });
+        mirrorInput.value = '';
+        disableMirrorInput();
+    });
+
+    exitMirrorBtn.addEventListener('click', function () {
+        send({ type: 'exit_mirror' });
+    });
+
+    // -- Init --
     connect();
-    messageInput.focus();
-});
 
-messageForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const text = messageInput.value.trim();
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-
-    addUserMessage(text);
-    ws.send(JSON.stringify({ type: "message", text }));
-    messageInput.value = "";
-    showTypingIndicator();
-});
-
-btnStatus.addEventListener("click", () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "command", command: "status" }));
-    }
-});
-
-btnMirror.addEventListener("click", () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const command = currentMode === "mirror" ? "interview" : "mirror";
-    ws.send(JSON.stringify({ type: "command", command }));
-    if (command === "mirror") {
-        addSystemMessage("switching to soul mirror...");
-        showTypingIndicator();
-    } else {
-        addSystemMessage("returning to interview...");
-    }
-});
-
-btnCloseStatus.addEventListener("click", () => {
-    statusOverlay.classList.add("hidden");
-});
-
-statusOverlay.addEventListener("click", (e) => {
-    if (e.target === statusOverlay) {
-        statusOverlay.classList.add("hidden");
-    }
-});
+})();
