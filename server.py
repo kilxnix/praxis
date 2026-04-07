@@ -1,13 +1,13 @@
 """
-Vib -- FastAPI Server (Agentic Dating)
+Vib -- FastAPI Server (Wellness Companion)
 
-WebSocket-based server for The Soul interviewer and the Vib World.
+WebSocket-based server for the Vib wellness companion.
 Serves the static frontend and manages per-connection sessions.
 
 Modes:
-- Interview: The Soul gets to know you through conversation
-- Mirror: Chat with your digital twin once enough data is collected
-- Vib: Two souls meet autonomously and the system evaluates compatibility
+- Conversation: Vib gets to know you through conversation
+- Mirror: Chat with your companion in voice-matching mode
+- Logging: Track meals, mood, sleep, movement, social activity
 
 Run: uvicorn server:app --reload
 """
@@ -17,7 +17,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,8 +25,10 @@ from interviewer.orchestrator import VibSession
 from interviewer.llm_client import OllamaLLMClient, ModelTier
 from interviewer.persona_builder import build_soul_persona
 from interviewer.storage import SoulStorage
+from vib_wellness.logging_service import log_entry, entry_to_evidence
+from vib_wellness.post_binge import enter_acute_mode, check_mode_transition
 
-app = FastAPI(title="Vib -- Agentic Dating")
+app = FastAPI(title="Vib -- Wellness Companion")
 
 # Persistent soul storage -- lives across all connections
 _storage = SoulStorage(db_path=str(Path(__file__).parent / "souls.db"))
@@ -72,28 +74,21 @@ def _serialize_session(session: VibSession) -> dict:
         "temperature": session.graph.temperature.value,
         "energy": round(session.graph.energy_level, 2),
         "readiness": readiness,
+        "post_binge_mode": session.cartographer.post_binge_mode,
     }
 
 
-def _load_soul_for_vib(name: str) -> dict:
-    """
-    Load all data needed to represent a soul in the vib world.
-    Returns None if soul doesn't exist or isn't ready.
-    """
-    soul_data = _storage.load_soul(name)
-    if not soul_data:
-        return None
-
-    soul_id = soul_data["soul_id"]
-    evidence = _storage.load_evidence(soul_id)
-
-    return {
-        "name": name,
-        "soul_id": soul_id,
-        "cartographer": soul_data["cartographer"],
-        "conversation_history": soul_data["messages"],
-        "evidence": evidence,
-    }
+@app.post("/upload/photo")
+async def upload_photo(file: UploadFile = File(...)):
+    """Accept a photo upload, return an ID for referencing in log messages."""
+    import uuid
+    photo_id = str(uuid.uuid4())
+    upload_dir = Path(__file__).parent / "uploads"
+    upload_dir.mkdir(exist_ok=True)
+    path = upload_dir / f"{photo_id}.jpg"
+    content = await file.read()
+    path.write_bytes(content)
+    return {"photo_id": photo_id, "size": len(content)}
 
 
 @app.websocket("/ws")
@@ -237,184 +232,6 @@ async def websocket_endpoint(ws: WebSocket):
                     "data": _serialize_session(session),
                 })
 
-            # ─────────────────────────────────────
-            # VIB WORLD
-            # ─────────────────────────────────────
-
-            elif msg_type == "start_vib":
-                soul_a_name = msg.get("soul_a", "").strip()
-                soul_b_name = msg.get("soul_b", "").strip()
-
-                if not soul_a_name or not soul_b_name:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "Need two soul names to start a vib.",
-                    })
-                    continue
-
-                if soul_a_name == soul_b_name:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "Can't vib with yourself.",
-                    })
-                    continue
-
-                # Ensure LLM is available
-                if not llm_client:
-                    llm_client = _create_llm_client()
-                if not llm_client:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "Vib requires an LLM connection. Is Ollama running?",
-                    })
-                    continue
-
-                # Load both souls
-                soul_a = _load_soul_for_vib(soul_a_name)
-                soul_b = _load_soul_for_vib(soul_b_name)
-
-                if not soul_a:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"Soul '{soul_a_name}' not found. They need to be interviewed first.",
-                    })
-                    continue
-                if not soul_b:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"Soul '{soul_b_name}' not found. They need to be interviewed first.",
-                    })
-                    continue
-
-                # Create vib session in storage
-                vib_db_id = _storage.create_vib_session(
-                    soul_a["soul_id"], soul_b["soul_id"]
-                )
-
-                # Notify client that vib is starting
-                await ws.send_json({
-                    "type": "vib_started",
-                    "vib_id": vib_db_id,
-                    "soul_a": soul_a_name,
-                    "soul_b": soul_b_name,
-                })
-
-                # Configure and run the vib
-                config = VibConfig(
-                    max_turns=msg.get("max_turns", 20),
-                )
-
-                vib_session = VibSession(
-                    soul_a=soul_a,
-                    soul_b=soul_b,
-                    llm_client=llm_client,
-                    config=config,
-                )
-
-                # Stream turns to client and persist each one
-                async def on_vib_turn(turn_data):
-                    # Persist the turn
-                    speaker_name = turn_data["speaker"]
-                    speaker_soul_id = (
-                        soul_a["soul_id"] if speaker_name == soul_a_name
-                        else soul_b["soul_id"]
-                    )
-                    _storage.save_vib_message(
-                        vib_db_id,
-                        turn_data["turn"],
-                        speaker_soul_id,
-                        turn_data["content"],
-                        turn_data["phase"],
-                    )
-
-                    # Stream to client
-                    await ws.send_json({
-                        "type": "vib_turn",
-                        "vib_id": vib_db_id,
-                        "turn": turn_data["turn"],
-                        "speaker": turn_data["speaker"],
-                        "content": turn_data["content"],
-                        "phase": turn_data["phase"],
-                    })
-
-                try:
-                    result = await vib_session.run(on_turn=on_vib_turn)
-
-                    # Persist result
-                    _storage.complete_vib_session(vib_db_id, result.turns_completed)
-                    _storage.save_vib_result(vib_db_id, {
-                        "compatibility_score": result.compatibility_score,
-                        "recommendation": result.recommendation.value,
-                        "dimension_scores": result.dimension_scores,
-                        "key_moments": [
-                            {
-                                "turn": m.turn,
-                                "type": m.moment_type,
-                                "description": m.description,
-                                "speaker": m.speaker,
-                            }
-                            for m in result.key_moments
-                        ],
-                        "summary": result.summary,
-                        "soul_a_verdict": result.soul_a_verdict,
-                        "soul_b_verdict": result.soul_b_verdict,
-                    })
-
-                    # Send final result
-                    await ws.send_json({
-                        "type": "vib_result",
-                        "vib_id": vib_db_id,
-                        "compatibility_score": result.compatibility_score,
-                        "recommendation": result.recommendation.value,
-                        "dimension_scores": result.dimension_scores,
-                        "summary": result.summary,
-                        "soul_a_verdict": result.soul_a_verdict,
-                        "soul_b_verdict": result.soul_b_verdict,
-                        "key_moments": [
-                            {
-                                "turn": m.turn,
-                                "type": m.moment_type,
-                                "description": m.description,
-                                "speaker": m.speaker,
-                            }
-                            for m in result.key_moments
-                        ],
-                        "turns_completed": result.turns_completed,
-                    })
-
-                except Exception as e:
-                    print(f"[ERROR] Vib failed: {e}")
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"Vib conversation failed: {str(e)}",
-                    })
-
-            elif msg_type == "list_vibs":
-                name = msg.get("name", "").strip()
-                soul_id = _storage.get_soul_id_by_name(name) if name else None
-                vibs = _storage.list_vibs(soul_id)
-                await ws.send_json({
-                    "type": "vib_list",
-                    "vibs": vibs,
-                })
-
-            elif msg_type == "get_vib_result":
-                vib_id = msg.get("vib_id")
-                if vib_id:
-                    result = _storage.load_vib_result(vib_id)
-                    transcript = _storage.load_vib_transcript(vib_id)
-                    await ws.send_json({
-                        "type": "vib_result_loaded",
-                        "vib_id": vib_id,
-                        "result": result,
-                        "transcript": transcript,
-                    })
-                else:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "Missing vib_id.",
-                    })
-
             elif msg_type == "list_souls":
                 # List all souls that exist in storage
                 rows = _storage.db.execute(
@@ -441,255 +258,59 @@ async def websocket_endpoint(ws: WebSocket):
                 })
 
             # ─────────────────────────────────────
-            # WORLD — The Living World
+            # WELLNESS LOGGING
             # ─────────────────────────────────────
 
-            elif msg_type == "send_vib_out":
-                # Send a single user's vib into the world to find matches
-                soul_name = msg.get("name", "").strip()
-                if not soul_name:
+            elif msg_type and msg_type.startswith("log_") and session:
+                kind = msg_type[4:]  # "log_meal" -> "meal"
+                payload = msg.get("payload", {})
+
+                if not session.soul_id:
                     await ws.send_json({
                         "type": "error",
-                        "message": "Need a soul name to send into the world.",
+                        "message": "Log entries require a named session.",
                     })
                     continue
-
-                soul_id = _storage.get_soul_id_by_name(soul_name)
-                if not soul_id:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"Soul '{soul_name}' not found.",
-                    })
-                    continue
-
-                if not llm_client:
-                    llm_client = _create_llm_client()
-                if not llm_client:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": "World requires an LLM connection. Is Ollama running?",
-                    })
-                    continue
-
-                world = WorldOrchestrator(
-                    storage=_storage,
-                    llm_client=llm_client,
-                )
-
-                await ws.send_json({
-                    "type": "world_started",
-                    "soul_name": soul_name,
-                    "message": f"{soul_name}'s vib is heading out into the world...",
-                })
-
-                # Activity callback — what the user sees their vib doing
-                async def on_activity(data):
-                    await ws.send_json({
-                        "type": "vib_activity",
-                        "soul_id": data["soul_id"],
-                        "soul_name": data["soul_name"],
-                        "location": data["location"],
-                        "activity": data["activity"],
-                        "time": data["time"],
-                    })
-
-                # Match callback — the vib found someone
-                async def on_match(report):
-                    await ws.send_json({
-                        "type": "match_found",
-                        "your_name": report.your_soul_name,
-                        "their_name": report.their_soul_name,
-                        "compatibility_score": report.compatibility_score,
-                        "where_you_met": report.where_you_met,
-                        "how_it_felt": report.how_it_felt,
-                        "what_clicked": report.what_clicked,
-                        "what_to_watch": report.what_to_watch,
-                        "deception_signals": [
-                            {
-                                "dimension": s.dimension,
-                                "what_they_said": s.what_they_said,
-                                "what_behavior_shows": s.what_behavior_shows,
-                                "confidence": s.confidence,
-                                "severity": s.severity,
-                            }
-                            for s in report.deception_signals
-                        ],
-                        "their_vibe": report.their_vibe,
-                        "conversation_highlights": report.conversation_highlights,
-                        "recommendation": report.recommendation,
-                        "vib_id": report.vib_id,
-                    })
 
                 try:
-                    from world.spatial.types import SpatialConfig
+                    source = "manual"
+                    at_time = None
+                    if isinstance(payload, dict):
+                        source = payload.pop("source", "manual")
+                        at_time = payload.pop("at", None)
 
-                    async def on_spatial_encounter(data):
-                        await ws.send_json({
-                            "type": "vib_encounter",
-                            "soul_a": data.get("soul_a", ""),
-                            "soul_b": data.get("soul_b", ""),
-                            "location": data.get("location", ""),
-                        })
-
-                    # All ready souls enter the world (need 2+ for encounters)
-                    # Activity/match callbacks only fire for the requesting user
-                    reports = await world.run_day_spatial(
-                        soul_ids=None,  # all ready souls
-                        on_activity=on_activity,
-                        on_encounter=on_spatial_encounter,
-                        on_match=on_match,
-                        spatial_config=SpatialConfig(bluetooth_range=50.0),
+                    entry_id = log_entry(
+                        storage=_storage,
+                        soul_id=session.soul_id,
+                        kind=kind,
+                        payload=payload,
+                        source=source,
+                        at=at_time,
                     )
 
+                    # Generate evidence signals from the entry
+                    signals = entry_to_evidence(kind, payload)
+                    if signals and session.session_id:
+                        _storage.save_evidence(
+                            session.soul_id, session.session_id,
+                            session.graph.turn_number, signals,
+                            f"[logged {kind}]",
+                        )
+
+                    # If binge_marker, enter acute mode
+                    if kind == "binge_marker":
+                        enter_acute_mode(session.cartographer)
+
                     await ws.send_json({
-                        "type": "world_complete",
-                        "soul_name": soul_name,
-                        "matches_found": len(reports),
-                        "world_stats": world.get_state_summary(),
+                        "type": "entry_logged",
+                        "payload": {"entry_id": entry_id},
                     })
 
-                except Exception as e:
-                    print(f"[ERROR] World simulation failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"World simulation failed: {str(e)}",
-                    })
-
-            elif msg_type == "run_world_day":
-                # Run a full day simulation for all ready souls
-                if not llm_client:
-                    llm_client = _create_llm_client()
-                if not llm_client:
+                except ValueError as e:
                     await ws.send_json({
                         "type": "error",
-                        "message": "World requires an LLM connection.",
+                        "message": str(e),
                     })
-                    continue
-
-                world = WorldOrchestrator(
-                    storage=_storage,
-                    llm_client=llm_client,
-                )
-
-                await ws.send_json({
-                    "type": "world_day_started",
-                    "message": "A new day begins in the world...",
-                })
-
-                async def on_day_activity(data):
-                    await ws.send_json({
-                        "type": "vib_activity",
-                        "soul_id": data["soul_id"],
-                        "soul_name": data["soul_name"],
-                        "location": data["location"],
-                        "activity": data["activity"],
-                        "time": data["time"],
-                    })
-
-                async def on_day_match(report):
-                    await ws.send_json({
-                        "type": "match_found",
-                        "your_name": report.your_soul_name,
-                        "their_name": report.their_soul_name,
-                        "compatibility_score": report.compatibility_score,
-                        "where_you_met": report.where_you_met,
-                        "how_it_felt": report.how_it_felt,
-                        "what_clicked": report.what_clicked,
-                        "what_to_watch": report.what_to_watch,
-                        "deception_signals": [
-                            {
-                                "dimension": s.dimension,
-                                "what_they_said": s.what_they_said,
-                                "what_behavior_shows": s.what_behavior_shows,
-                                "confidence": s.confidence,
-                                "severity": s.severity,
-                            }
-                            for s in report.deception_signals
-                        ],
-                        "their_vibe": report.their_vibe,
-                        "conversation_highlights": report.conversation_highlights,
-                        "recommendation": report.recommendation,
-                        "vib_id": report.vib_id,
-                    })
-
-                try:
-                    from world.spatial.types import SpatialConfig
-
-                    async def on_day_encounter(data):
-                        await ws.send_json({
-                            "type": "vib_encounter",
-                            "soul_a": data.get("soul_a", ""),
-                            "soul_b": data.get("soul_b", ""),
-                            "location": data.get("location", ""),
-                        })
-
-                    reports = await world.run_day_spatial(
-                        on_activity=on_day_activity,
-                        on_encounter=on_day_encounter,
-                        on_match=on_day_match,
-                        spatial_config=SpatialConfig(bluetooth_range=50.0),
-                    )
-
-                    await ws.send_json({
-                        "type": "world_day_complete",
-                        "matches_found": len(reports),
-                        "world_stats": world.get_state_summary(),
-                    })
-                except Exception as e:
-                    print(f"[ERROR] World day failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    await ws.send_json({
-                        "type": "error",
-                        "message": f"World day failed: {str(e)}",
-                    })
-
-            elif msg_type == "get_world_status":
-                # Get the current world state
-                soul_name = msg.get("name", "").strip()
-                soul_id = _storage.get_soul_id_by_name(soul_name) if soul_name else None
-
-                # Count ready souls
-                from world.encounter import check_soul_readiness, get_confidence_average
-                rows = _storage.db.execute("SELECT id, name FROM souls").fetchall()
-                ready_souls = []
-                for r in rows:
-                    soul_data = _storage.load_soul(r[1])
-                    if soul_data:
-                        cart = soul_data["cartographer"]
-                        avg_conf = get_confidence_average(cart)
-                        if check_soul_readiness(soul_data["evidence_count"], avg_conf):
-                            ready_souls.append({
-                                "name": r[1],
-                                "evidence_count": soul_data["evidence_count"],
-                                "confidence": round(avg_conf, 2),
-                            })
-
-                # Get match history for this soul
-                match_history = []
-                if soul_id:
-                    vibs = _storage.list_vibs(soul_id)
-                    for v in vibs:
-                        result = _storage.load_vib_result(v["vib_id"])
-                        if result:
-                            match_history.append({
-                                "vib_id": v["vib_id"],
-                                "other_soul": (
-                                    v["soul_b"] if v["soul_a"] == soul_name
-                                    else v["soul_a"]
-                                ),
-                                "score": result["compatibility_score"],
-                                "recommendation": result["recommendation"],
-                            })
-
-                await ws.send_json({
-                    "type": "world_status",
-                    "ready_souls": ready_souls,
-                    "total_souls": len(rows),
-                    "match_history": match_history,
-                })
 
     except WebSocketDisconnect:
         pass
