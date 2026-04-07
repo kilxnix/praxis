@@ -8,7 +8,7 @@ Routes calls to the right model tier:
 - Cartographer (structured analysis)
 - Mirror (soul persona builder)
 
-All tiers default to the VIB_MODEL env var or qwen3.5:4b.
+All tiers default to the VIB_MODEL env var or qwen3.5:9b.
 """
 
 import json
@@ -24,9 +24,10 @@ import httpx
 
 class ModelTier:
     """Model assignments per system. Override via VIB_MODEL env var."""
-    INTERVIEWER = os.environ.get("VIB_MODEL", "qwen2.5:3b")
-    CARTOGRAPHER = os.environ.get("VIB_MODEL", "qwen2.5:3b")
-    MIRROR = os.environ.get("VIB_MODEL", "qwen2.5:3b")
+    INTERVIEWER = os.environ.get("VIB_MODEL", "qwen3.5:9b")
+    CARTOGRAPHER = os.environ.get("VIB_MODEL", "qwen3.5:9b")
+    MIRROR = os.environ.get("VIB_MODEL", "qwen3.5:9b")
+    VISION = os.environ.get("VIB_MODEL_VISION", "qwen2.5-vl:7b")
 
 
 # ---------------------------------------------
@@ -41,7 +42,7 @@ class OllamaLLMClient:
 
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
-        self._http = httpx.AsyncClient(base_url=base_url, timeout=120.0)
+        self._http = httpx.AsyncClient(base_url=base_url, timeout=180.0)
 
     async def close(self):
         """Close the underlying httpx client."""
@@ -66,6 +67,7 @@ class OllamaLLMClient:
             "model": model,
             "messages": [{"role": "system", "content": system}] + messages,
             "stream": False,
+            "think": False,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
@@ -95,7 +97,7 @@ class OllamaLLMClient:
             system=system,
             messages=messages,
             model=ModelTier.INTERVIEWER,
-            max_tokens=512,
+            max_tokens=256,
             temperature=0.75,
         )
 
@@ -118,7 +120,7 @@ class OllamaLLMClient:
             system=system,
             messages=messages,
             model=ModelTier.CARTOGRAPHER,
-            max_tokens=1024,
+            max_tokens=512,
             temperature=0.3,
             format_json=True,
         )
@@ -138,9 +140,45 @@ class OllamaLLMClient:
             system=system,
             messages=messages,
             model=ModelTier.MIRROR,
-            max_tokens=512,
+            max_tokens=256,
             temperature=0.8,
         )
+
+    async def vision(
+        self,
+        prompt: str,
+        image_b64: str,
+        caption: Optional[str] = None,
+    ) -> Dict:
+        """
+        Send an image to the vision model and get structured JSON back.
+        Uses Ollama's image support in the chat API.
+        """
+        user_content = prompt
+        if caption:
+            user_content += f"\n\nUser's description: {caption}"
+
+        messages = [{
+            "role": "user",
+            "content": user_content,
+            "images": [image_b64],
+        }]
+
+        payload = {
+            "model": ModelTier.VISION,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": 512,
+            },
+            "format": "json",
+        }
+
+        response = await self._http.post("/api/chat", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return self._parse_json_response(data["message"]["content"])
 
     # -- JSON fallback chain --
 
