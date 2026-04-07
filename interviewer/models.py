@@ -18,14 +18,16 @@ from datetime import datetime
 # ─────────────────────────────────────────────
 
 class MoveType(str, Enum):
-    OPEN_DOOR = "open_door"
-    FOLLOW_THREAD = "follow_thread"
-    OBSERVATION = "observation"
-    HYPOTHETICAL = "hypothetical"
-    GENTLE_CONTRADICTION = "gentle_contradiction"
-    CALLBACK = "callback"
-    SHARE = "share"
-    REST = "rest"
+    ACKNOWLEDGE = "acknowledge"           # brief log confirmation
+    OPEN_DOOR = "open_door"               # kept
+    FOLLOW_THREAD = "follow_thread"       # kept
+    OBSERVATION = "observation"            # kept
+    GENTLE_OFFER = "gentle_offer"         # was HYPOTHETICAL
+    PATTERN_CALLBACK = "pattern_callback" # was GENTLE_CONTRADICTION
+    CALLBACK = "callback"                 # kept
+    VALIDATE = "validate"                 # was SHARE
+    STATE_CHECK = "state_check"           # mood-before-meal
+    REST = "rest"                         # kept
 
 
 @dataclass
@@ -41,8 +43,12 @@ class MoveConstraints:
 
 
 MOVE_RULES: Dict[MoveType, MoveConstraints] = {
+    MoveType.ACKNOWLEDGE: MoveConstraints(
+        min_phase=1,
+    ),
     MoveType.OPEN_DOOR: MoveConstraints(
         min_phase=1,
+        min_trust_score=0.3,
         max_frequency_per_session=4,
     ),
     MoveType.FOLLOW_THREAD: MoveConstraints(
@@ -54,14 +60,14 @@ MOVE_RULES: Dict[MoveType, MoveConstraints] = {
         min_trust_score=0.15,
         cooldown_turns=3,
     ),
-    MoveType.HYPOTHETICAL: MoveConstraints(
+    MoveType.GENTLE_OFFER: MoveConstraints(
         min_phase=1,
         max_frequency_per_session=3,
         cooldown_turns=2,
     ),
-    MoveType.GENTLE_CONTRADICTION: MoveConstraints(
-        min_phase=2,
-        min_trust_score=0.4,
+    MoveType.PATTERN_CALLBACK: MoveConstraints(
+        min_phase=3,
+        min_trust_score=0.7,
         requires_contradiction=True,
         max_frequency_per_session=1,
         cooldown_turns=5,
@@ -71,11 +77,16 @@ MOVE_RULES: Dict[MoveType, MoveConstraints] = {
         max_frequency_per_session=2,
         cooldown_turns=4,
     ),
-    MoveType.SHARE: MoveConstraints(
+    MoveType.VALIDATE: MoveConstraints(
         min_phase=1,
         min_trust_score=0.1,
         max_frequency_per_session=3,
         cooldown_turns=3,
+    ),
+    MoveType.STATE_CHECK: MoveConstraints(
+        min_phase=1,
+        max_frequency_per_session=3,
+        cooldown_turns=2,
     ),
     MoveType.REST: MoveConstraints(
         min_phase=1,
