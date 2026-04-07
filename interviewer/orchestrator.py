@@ -557,6 +557,13 @@ class VibSession:
         if new_phase != self.graph.phase:
             self.graph.phase = new_phase
 
+        # ── Step 4.5: Check post-binge mode transitions ──
+        try:
+            from vib_wellness.post_binge import check_mode_transition
+            check_mode_transition(self.cartographer)
+        except ImportError:
+            pass
+
         # ── Step 5: Select move ──
         move = select_move(self.graph, self.cartographer)
 

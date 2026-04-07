@@ -422,6 +422,14 @@ def select_move(
     # Step 2: Emotional override
     filtered = apply_emotional_override(eligible, graph)
 
+    # Step 2.5: Post-binge protocol override
+    try:
+        from vib_wellness.post_binge import apply_post_binge_protocol
+        filtered_set = apply_post_binge_protocol(cartographer, set(filtered))
+        filtered = list(filtered_set) if filtered_set else [MoveType.REST]
+    except ImportError:
+        pass  # vib_wellness not installed
+
     # Step 3: Score each candidate
     scored = [
         (move_type, score_move(move_type, graph, cartographer))
