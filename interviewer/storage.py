@@ -146,6 +146,70 @@ class SoulStorage:
                 FOREIGN KEY (vib_id) REFERENCES vib_sessions(id)
             );
         """)
+        # Wellness tables
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS entries (
+                id TEXT PRIMARY KEY,
+                soul_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                at TEXT NOT NULL,
+                logged_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                tagged_as_binge INTEGER,
+                FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS entries_soul_at_idx ON entries (soul_id, at DESC);
+            CREATE INDEX IF NOT EXISTS entries_soul_kind_idx ON entries (soul_id, kind, at DESC);
+
+            CREATE TABLE IF NOT EXISTS vib_state (
+                soul_id INTEGER PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                attunement_confidence REAL NOT NULL DEFAULT 0.5,
+                post_binge_mode TEXT,
+                post_binge_until TEXT,
+                recomputed_at TEXT NOT NULL,
+                FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS risk_windows (
+                id TEXT PRIMARY KEY,
+                soul_id INTEGER NOT NULL,
+                day_of_week INTEGER NOT NULL,
+                hour_start INTEGER NOT NULL,
+                hour_end INTEGER NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0.5,
+                hit_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS risk_windows_soul_idx ON risk_windows (soul_id);
+
+            CREATE TABLE IF NOT EXISTS nudges (
+                id TEXT PRIMARY KEY,
+                soul_id INTEGER NOT NULL,
+                sent_at TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                message_id TEXT,
+                responded INTEGER,
+                acted_on INTEGER,
+                FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS nudges_soul_sent_idx ON nudges (soul_id, sent_at DESC);
+
+            CREATE TABLE IF NOT EXISTS shortcuts (
+                id TEXT PRIMARY KEY,
+                soul_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                label TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                use_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS shortcuts_soul_kind_idx ON shortcuts (soul_id, kind);
+        """)
         self.db.commit()
 
     def close(self):
@@ -426,130 +490,81 @@ class SoulStorage:
             "evidence_count": len(evidence),
         }
 
-    # ── Vib sessions ──
+    # ── Wellness entries ──
 
-    def create_vib_session(self, soul_a_id: int, soul_b_id: int) -> int:
-        """Create a new vib session between two souls. Returns vib_id."""
-        cursor = self.db.execute(
-            "INSERT INTO vib_sessions (soul_a_id, soul_b_id, started_at) "
-            "VALUES (?, ?, ?)",
-            (soul_a_id, soul_b_id, datetime.now().isoformat()),
-        )
-        self.db.commit()
-        return cursor.lastrowid
-
-    def save_vib_message(self, vib_id: int, turn: int,
-                         speaker_soul_id: int, content: str, phase: str):
-        """Save a single turn from a vib conversation."""
-        self.db.execute(
-            "INSERT INTO vib_messages "
-            "(vib_id, turn, speaker_soul_id, content, phase, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (vib_id, turn, speaker_soul_id, content, phase,
-             datetime.now().isoformat()),
-        )
-        self.db.commit()
-
-    def complete_vib_session(self, vib_id: int, turns: int):
-        """Mark a vib session as completed."""
-        self.db.execute(
-            "UPDATE vib_sessions SET turns_completed = ?, completed_at = ? "
-            "WHERE id = ?",
-            (turns, datetime.now().isoformat(), vib_id),
-        )
-        self.db.commit()
-
-    def save_vib_result(self, vib_id: int, result_data: Dict):
-        """Save the compatibility evaluation result for a vib."""
+    def save_entry(self, soul_id: int, entry_id: str, kind: str,
+                   payload: dict, at: str, source: str,
+                   confidence: float = 1.0, tagged_as_binge: Optional[int] = None):
         import json as _json
         self.db.execute(
-            "INSERT OR REPLACE INTO vib_results "
-            "(vib_id, compatibility_score, recommendation, dimension_scores, "
-            "key_moments, summary, soul_a_verdict, soul_b_verdict, created_at) "
+            "INSERT INTO entries "
+            "(id, soul_id, kind, payload_json, at, logged_at, source, confidence, tagged_as_binge) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                vib_id,
-                result_data["compatibility_score"],
-                result_data["recommendation"],
-                _json.dumps(result_data.get("dimension_scores", {})),
-                _json.dumps(result_data.get("key_moments", [])),
-                result_data.get("summary", ""),
-                result_data.get("soul_a_verdict", ""),
-                result_data.get("soul_b_verdict", ""),
-                datetime.now().isoformat(),
-            ),
+            (entry_id, soul_id, kind, _json.dumps(payload), at,
+             datetime.now().isoformat(), source, confidence, tagged_as_binge),
         )
         self.db.commit()
 
-    def load_vib_result(self, vib_id: int) -> Optional[Dict]:
-        """Load the result of a vib session."""
+    def load_entries(self, soul_id: int, kind: Optional[str] = None,
+                     limit: int = 50) -> List[Dict]:
+        import json as _json
+        if kind:
+            rows = self.db.execute(
+                "SELECT id, kind, payload_json, at, logged_at, source, confidence, tagged_as_binge "
+                "FROM entries WHERE soul_id = ? AND kind = ? ORDER BY at DESC LIMIT ?",
+                (soul_id, kind, limit),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT id, kind, payload_json, at, logged_at, source, confidence, tagged_as_binge "
+                "FROM entries WHERE soul_id = ? ORDER BY at DESC LIMIT ?",
+                (soul_id, limit),
+            ).fetchall()
+        return [
+            {
+                "id": r[0], "kind": r[1], "payload": _json.loads(r[2]),
+                "at": r[3], "logged_at": r[4], "source": r[5],
+                "confidence": r[6], "tagged_as_binge": r[7],
+            }
+            for r in rows
+        ]
+
+    def tag_entry_as_binge(self, entry_id: str):
+        self.db.execute(
+            "UPDATE entries SET tagged_as_binge = 1 WHERE id = ?",
+            (entry_id,),
+        )
+        self.db.commit()
+
+    # ── Vib state cache ──
+
+    def save_vib_state(self, soul_id: int, state_json: str,
+                       attunement: float, post_binge_mode: Optional[str] = None,
+                       post_binge_until: Optional[str] = None):
+        self.db.execute(
+            "INSERT OR REPLACE INTO vib_state "
+            "(soul_id, state_json, attunement_confidence, post_binge_mode, "
+            "post_binge_until, recomputed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (soul_id, state_json, attunement, post_binge_mode,
+             post_binge_until, datetime.now().isoformat()),
+        )
+        self.db.commit()
+
+    def load_vib_state(self, soul_id: int) -> Optional[Dict]:
         import json as _json
         row = self.db.execute(
-            "SELECT compatibility_score, recommendation, dimension_scores, "
-            "key_moments, summary, soul_a_verdict, soul_b_verdict "
-            "FROM vib_results WHERE vib_id = ?",
-            (vib_id,),
+            "SELECT state_json, attunement_confidence, post_binge_mode, post_binge_until "
+            "FROM vib_state WHERE soul_id = ?",
+            (soul_id,),
         ).fetchone()
         if not row:
             return None
         return {
-            "compatibility_score": row[0],
-            "recommendation": row[1],
-            "dimension_scores": _json.loads(row[2]),
-            "key_moments": _json.loads(row[3]),
-            "summary": row[4],
-            "soul_a_verdict": row[5],
-            "soul_b_verdict": row[6],
+            "state": _json.loads(row[0]),
+            "attunement": row[1],
+            "post_binge_mode": row[2],
+            "post_binge_until": row[3],
         }
-
-    def load_vib_transcript(self, vib_id: int) -> List[Dict]:
-        """Load the full transcript of a vib session."""
-        rows = self.db.execute(
-            "SELECT vm.turn, s.name, vm.content, vm.phase "
-            "FROM vib_messages vm "
-            "JOIN souls s ON vm.speaker_soul_id = s.id "
-            "WHERE vm.vib_id = ? ORDER BY vm.turn",
-            (vib_id,),
-        ).fetchall()
-        return [
-            {"turn": r[0], "speaker": r[1], "content": r[2], "phase": r[3]}
-            for r in rows
-        ]
-
-    def list_vibs(self, soul_id: Optional[int] = None) -> List[Dict]:
-        """List vib sessions, optionally filtered by soul participation."""
-        if soul_id:
-            rows = self.db.execute(
-                "SELECT vs.id, sa.name, sb.name, vs.turns_completed, "
-                "vs.started_at, vs.completed_at "
-                "FROM vib_sessions vs "
-                "JOIN souls sa ON vs.soul_a_id = sa.id "
-                "JOIN souls sb ON vs.soul_b_id = sb.id "
-                "WHERE vs.soul_a_id = ? OR vs.soul_b_id = ? "
-                "ORDER BY vs.id DESC",
-                (soul_id, soul_id),
-            ).fetchall()
-        else:
-            rows = self.db.execute(
-                "SELECT vs.id, sa.name, sb.name, vs.turns_completed, "
-                "vs.started_at, vs.completed_at "
-                "FROM vib_sessions vs "
-                "JOIN souls sa ON vs.soul_a_id = sa.id "
-                "JOIN souls sb ON vs.soul_b_id = sb.id "
-                "ORDER BY vs.id DESC",
-            ).fetchall()
-
-        return [
-            {
-                "vib_id": r[0],
-                "soul_a": r[1],
-                "soul_b": r[2],
-                "turns_completed": r[3],
-                "started_at": r[4],
-                "completed_at": r[5],
-            }
-            for r in rows
-        ]
 
     def get_soul_id_by_name(self, name: str) -> Optional[int]:
         """Look up a soul's ID by name."""
