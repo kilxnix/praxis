@@ -5,9 +5,9 @@ This is the decision engine. It looks at the Conversation Graph (where are we?)
 and the Cartographer State (what do we need?) and selects the right conversational
 move. Then it builds the prompt context for the LLM to generate the actual response.
 
-The cardinal rule: RAPPORT ALWAYS BEATS DATA COLLECTION.
+The cardinal rule: PRESENCE ALWAYS BEATS PROGRESS.
 If the user is in a vulnerable moment, the generator will never pivot to fill
-a Psychograph gap. It will hold space first, gather data never or later.
+a wellness-map gap. It will hold space first, gather data never or later.
 """
 
 from typing import List, Optional, Tuple
@@ -111,7 +111,7 @@ def apply_emotional_override(
             supportive_moves = {
                 MoveType.REST,
                 MoveType.FOLLOW_THREAD,
-                MoveType.SHARE,        # Reciprocal vulnerability can be appropriate
+                MoveType.VALIDATE,     # Acknowledge difficulty without fixing
             }
             return [m for m in eligible_moves if m in supportive_moves] or [MoveType.REST]
 
@@ -119,7 +119,7 @@ def apply_emotional_override(
     if graph.temperature == EmotionalTemperature.COLD:
         safe_moves = {
             MoveType.OPEN_DOOR,
-            MoveType.HYPOTHETICAL,     # Low-stakes hypotheticals can warm things up
+            MoveType.GENTLE_OFFER,     # Low-stakes offers can warm things up
             MoveType.REST,
         }
         return [m for m in eligible_moves if m in safe_moves] or [MoveType.OPEN_DOOR]
@@ -137,7 +137,7 @@ def apply_emotional_override(
     if graph.energy_level < 0.3:
         light_moves = {
             MoveType.OPEN_DOOR,
-            MoveType.HYPOTHETICAL,
+            MoveType.GENTLE_OFFER,
             MoveType.REST,
             MoveType.CALLBACK,         # A light callback can re-engage
         }
@@ -223,9 +223,9 @@ def _score_conversational_flow(move_type: MoveType, graph: ConversationGraph) ->
     if thread_is_exhausted:
         if move_type == MoveType.OPEN_DOOR:
             score = 0.85
-        elif move_type == MoveType.HYPOTHETICAL:
+        elif move_type == MoveType.GENTLE_OFFER:
             score = 0.8
-        elif move_type == MoveType.SHARE:
+        elif move_type == MoveType.VALIDATE:
             score = 0.75
         elif move_type == MoveType.OBSERVATION:
             score = 0.7
@@ -255,8 +255,8 @@ def _score_conversational_flow(move_type: MoveType, graph: ConversationGraph) ->
         elif graph.temperature == EmotionalTemperature.COOL:
             score = 0.3
 
-    # GENTLE_CONTRADICTION should never follow another heavy move
-    if move_type == MoveType.GENTLE_CONTRADICTION:
+    # PATTERN_CALLBACK should never follow another heavy move
+    if move_type == MoveType.PATTERN_CALLBACK:
         if graph.last_heavy_moment_turn is not None:
             turns_since = graph.turn_number - graph.last_heavy_moment_turn
             if turns_since < 4:
@@ -264,23 +264,31 @@ def _score_conversational_flow(move_type: MoveType, graph: ConversationGraph) ->
             else:
                 score = 0.7
 
-    # SHARE builds reciprocity but shouldn't dominate
-    if move_type == MoveType.SHARE:
-        recent_shares = sum(
+    # VALIDATE builds presence but shouldn't dominate
+    if move_type == MoveType.VALIDATE:
+        recent_validates = sum(
             1 for turn, move in graph.move_history[-6:]
-            if move == MoveType.SHARE
+            if move == MoveType.VALIDATE
         )
-        if recent_shares == 0:
+        if recent_validates == 0:
             score = max(score, 0.7)
         else:
             score = min(score, 0.3)
 
-    # HYPOTHETICAL is good for energy dips and topic transitions
-    if move_type == MoveType.HYPOTHETICAL:
+    # GENTLE_OFFER is good for energy dips and topic transitions
+    if move_type == MoveType.GENTLE_OFFER:
         if graph.energy_level < 0.5 and graph.temperature != EmotionalTemperature.HOT:
             score = max(score, 0.75)
         elif not thread_is_exhausted:
             score = max(score, 0.5)
+
+    # ACKNOWLEDGE is always appropriate for log confirmations
+    if move_type == MoveType.ACKNOWLEDGE:
+        score = 0.8
+
+    # STATE_CHECK is moderate — useful but not dominant
+    if move_type == MoveType.STATE_CHECK:
+        score = 0.6
 
     return min(score, 1.0)
 
@@ -299,12 +307,14 @@ def _score_data_need(
     data_move_effectiveness = {
         MoveType.FOLLOW_THREAD: 0.7,       # Depth on a topic reveals a lot
         MoveType.OBSERVATION: 0.8,          # Reactions to observations are gold
-        MoveType.HYPOTHETICAL: 0.75,        # Targeted hypotheticals can probe specific dimensions
-        MoveType.GENTLE_CONTRADICTION: 0.9, # The richest data source — if it lands
+        MoveType.GENTLE_OFFER: 0.75,        # Offers can probe specific wellness dimensions
+        MoveType.PATTERN_CALLBACK: 0.9,     # The richest data source — if it lands
         MoveType.OPEN_DOOR: 0.4,            # You get data but can't target it
         MoveType.CALLBACK: 0.6,             # Revisiting reveals evolution
-        MoveType.SHARE: 0.5,                # Reciprocity sometimes opens up targeted areas
+        MoveType.VALIDATE: 0.5,             # Validation sometimes opens up targeted areas
         MoveType.REST: 0.2,                 # Minimal data, but silence sometimes provokes reflection
+        MoveType.ACKNOWLEDGE: 0.3,          # Log confirmations — minimal data
+        MoveType.STATE_CHECK: 0.6,          # Direct mood check — moderate data
     }
 
     base = data_move_effectiveness.get(move_type, 0.5)
@@ -313,11 +323,11 @@ def _score_data_need(
     top_need = max(cartographer.needs, key=lambda n: n.priority)
     if top_need.priority > 0.7:
         # High priority gap — boost moves that can probe it
-        if move_type in (MoveType.HYPOTHETICAL, MoveType.OBSERVATION, MoveType.FOLLOW_THREAD):
+        if move_type in (MoveType.GENTLE_OFFER, MoveType.OBSERVATION, MoveType.FOLLOW_THREAD):
             base = min(base + 0.15, 1.0)
 
-    # If there's an unexplored contradiction, boost GENTLE_CONTRADICTION
-    if move_type == MoveType.GENTLE_CONTRADICTION:
+    # If there's an unexplored contradiction, boost PATTERN_CALLBACK
+    if move_type == MoveType.PATTERN_CALLBACK:
         unexplored = [c for c in cartographer.contradictions if not c.explored]
         if unexplored and max(c.confidence for c in unexplored) > 0.7:
             base = min(base + 0.2, 1.0)
@@ -351,44 +361,32 @@ def _score_phase_fit(move_type: MoveType, graph: ConversationGraph) -> float:
     """Some moves are more natural in certain phases."""
     phase_preferences = {
         Phase.ARRIVAL: {
-            MoveType.OPEN_DOOR: 0.8,
-            MoveType.FOLLOW_THREAD: 0.7,
-            MoveType.HYPOTHETICAL: 0.8,
-            MoveType.REST: 0.5,
-            MoveType.SHARE: 0.7,
-            MoveType.OBSERVATION: 0.6,
-            MoveType.CALLBACK: 0.5,
-            MoveType.GENTLE_CONTRADICTION: 0.0,
+            MoveType.OPEN_DOOR: 0.8, MoveType.FOLLOW_THREAD: 0.7,
+            MoveType.GENTLE_OFFER: 0.8, MoveType.REST: 0.5,
+            MoveType.VALIDATE: 0.7, MoveType.OBSERVATION: 0.6,
+            MoveType.CALLBACK: 0.5, MoveType.PATTERN_CALLBACK: 0.0,
+            MoveType.ACKNOWLEDGE: 0.7, MoveType.STATE_CHECK: 0.5,
         },
         Phase.DAILY_RHYTHM: {
-            MoveType.OBSERVATION: 0.9,
-            MoveType.FOLLOW_THREAD: 0.8,
-            MoveType.CALLBACK: 0.8,
-            MoveType.SHARE: 0.7,
-            MoveType.HYPOTHETICAL: 0.6,
-            MoveType.OPEN_DOOR: 0.4,
-            MoveType.REST: 0.5,
-            MoveType.GENTLE_CONTRADICTION: 0.2,
+            MoveType.OBSERVATION: 0.9, MoveType.FOLLOW_THREAD: 0.8,
+            MoveType.CALLBACK: 0.8, MoveType.VALIDATE: 0.7,
+            MoveType.GENTLE_OFFER: 0.7, MoveType.OPEN_DOOR: 0.4,
+            MoveType.REST: 0.5, MoveType.PATTERN_CALLBACK: 0.2,
+            MoveType.ACKNOWLEDGE: 0.7, MoveType.STATE_CHECK: 0.6,
         },
         Phase.ATTUNED: {
-            MoveType.GENTLE_CONTRADICTION: 0.9,
-            MoveType.FOLLOW_THREAD: 0.9,
-            MoveType.OBSERVATION: 0.8,
-            MoveType.CALLBACK: 0.7,
-            MoveType.SHARE: 0.7,
-            MoveType.HYPOTHETICAL: 0.5,
-            MoveType.REST: 0.6,
-            MoveType.OPEN_DOOR: 0.3,
+            MoveType.PATTERN_CALLBACK: 0.9, MoveType.FOLLOW_THREAD: 0.9,
+            MoveType.OBSERVATION: 0.8, MoveType.CALLBACK: 0.7,
+            MoveType.VALIDATE: 0.7, MoveType.GENTLE_OFFER: 0.6,
+            MoveType.REST: 0.6, MoveType.OPEN_DOOR: 0.3,
+            MoveType.ACKNOWLEDGE: 0.6, MoveType.STATE_CHECK: 0.7,
         },
         Phase.COMPANION: {
-            MoveType.FOLLOW_THREAD: 0.8,
-            MoveType.CALLBACK: 0.8,
-            MoveType.OBSERVATION: 0.7,
-            MoveType.SHARE: 0.7,
-            MoveType.GENTLE_CONTRADICTION: 0.7,
-            MoveType.HYPOTHETICAL: 0.6,
-            MoveType.REST: 0.6,
-            MoveType.OPEN_DOOR: 0.5,
+            MoveType.FOLLOW_THREAD: 0.8, MoveType.CALLBACK: 0.8,
+            MoveType.OBSERVATION: 0.7, MoveType.VALIDATE: 0.7,
+            MoveType.PATTERN_CALLBACK: 0.7, MoveType.GENTLE_OFFER: 0.7,
+            MoveType.REST: 0.6, MoveType.OPEN_DOOR: 0.5,
+            MoveType.ACKNOWLEDGE: 0.6, MoveType.STATE_CHECK: 0.7,
         },
     }
 
@@ -457,7 +455,13 @@ def _build_move_context(
     contradiction_ref = None
     prompt_context = ""
 
-    if move_type == MoveType.OPEN_DOOR:
+    if move_type == MoveType.ACKNOWLEDGE:
+        prompt_context = (
+            "Briefly confirm what was logged. One sentence max. No praise, no warning, "
+            "no exclamation marks."
+        )
+
+    elif move_type == MoveType.OPEN_DOOR:
         # Pick a dimension we know little about to subtly orient the open question
         if cartographer.needs:
             top_need = max(cartographer.needs, key=lambda n: n.priority)
@@ -498,32 +502,29 @@ def _build_move_context(
             top_need = max(cartographer.needs, key=lambda n: n.priority)
             target_dimension = top_need.dimension
         prompt_context = (
-            f"Share something specific you've noticed about how the user talks or what "
-            f"they focus on. Be direct and concrete — not abstract. One sentence. "
-            f"Example: 'You describe your job like it's something that happened to you, "
-            f"not something you chose.' Do NOT use 'I've noticed...' or 'Something I keep "
-            f"coming back to is...' — those sound clinical. Just say it plainly."
+            "Share something specific you've noticed about a pattern in their eating, "
+            "sleep, mood, or energy. Be direct and concrete — not abstract. One sentence. "
+            "Example: 'You always skip breakfast when you're stressed.' "
+            "Do NOT use 'I've noticed...' or 'Something I keep coming back to is...' "
+            "— those sound clinical. Just say it plainly."
         )
 
-    elif move_type == MoveType.HYPOTHETICAL:
+    elif move_type == MoveType.GENTLE_OFFER:
         if cartographer.needs:
             top_need = max(cartographer.needs, key=lambda n: n.priority)
             target_dimension = top_need.dimension
             prompt_context = (
-                f"Pose a hypothetical scenario that feels playful or interesting on the "
-                f"surface but is designed to reveal something about '{top_need.dimension}'. "
-                f"Don't make it obvious. The best hypotheticals feel like fun thought experiments "
-                f"but their answers expose values, priorities, and instincts. "
-                f"Keep it conversational — 'What would you do if...' not 'Imagine a scenario where...'"
+                f"Suggest a small, specific action. A walk, water, going outside. "
+                f"Frame as a question. Keep it light. Not a prescription. "
+                f"Internally you're thinking about '{top_need.dimension}' but don't mention it."
             )
         else:
             prompt_context = (
-                "Pose a hypothetical that's genuinely interesting. Something that might "
-                "reveal values, priorities, or how the user thinks — but feels like a fun "
-                "aside, not a test."
+                "Suggest a small, specific action. A walk, water, going outside. "
+                "Frame as a question. Keep it light. Not a prescription."
             )
 
-    elif move_type == MoveType.GENTLE_CONTRADICTION:
+    elif move_type == MoveType.PATTERN_CALLBACK:
         unexplored = [c for c in cartographer.contradictions if not c.explored]
         if unexplored:
             # Pick the one we're most confident about
@@ -535,14 +536,13 @@ def _build_move_context(
                 f"They stated: '{target_contradiction.stated}'. "
                 f"Their behavior suggests: '{target_contradiction.demonstrated}'. "
                 f"Bring this up GENTLY. Frame it with curiosity, not accusation. "
-                f"'I noticed something interesting...' or 'You mentioned X but I also see Y — "
-                f"what do you think that's about?' "
+                f"'You said X but it looks like Y — what do you think that's about?' "
                 f"This is not a gotcha. This is an invitation to self-reflect. "
                 f"If they get defensive, BACK OFF immediately and note that in the graph."
             )
         else:
             prompt_context = (
-                "Gently surface something the user might not have noticed about themselves. "
+                "Gently surface a wellness pattern the user might not have noticed. "
                 "Frame with absolute warmth and curiosity."
             )
 
@@ -568,13 +568,15 @@ def _build_move_context(
                 "Show the user you were listening and that it stuck with you."
             )
 
-    elif move_type == MoveType.SHARE:
+    elif move_type == MoveType.VALIDATE:
         prompt_context = (
-            "Offer a direct perspective or opinion that shifts the conversation. Not a "
-            "sweeping observation about human nature. Something specific and maybe a little "
-            "provocative. Like: 'I think people who say they hate drama are usually the "
-            "common denominator in it.' Keep it to one sentence, then let them react. "
-            "This is a conversation, not a TED talk."
+            "Acknowledge difficulty without trying to fix it. No silver linings. "
+            "No reframes. Just presence."
+        )
+
+    elif move_type == MoveType.STATE_CHECK:
+        prompt_context = (
+            "Quick mood check. One question. 'How are you feeling right now?'"
         )
 
     elif move_type == MoveType.REST:
