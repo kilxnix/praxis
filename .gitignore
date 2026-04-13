@@ -6,3 +6,5 @@ __pycache__/
 dist/
 build/
 .env
+souls.db
+.fuse_hidden*
