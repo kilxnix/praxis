@@ -10,6 +10,7 @@ from praxis.architect import design_interventions, redesign_interventions
 from praxis.business_case import score_interventions
 from praxis.skeptic import review
 from praxis.principal import assemble_deliverable
+from praxis.firm_agent import morph_firm
 
 
 async def _attempt(fn, tries=3):
@@ -37,12 +38,19 @@ def _mem(firm, key):
     return text if text.strip() else ""
 
 
-async def run_firm(client, model, max_redo=1, firm=None):
+async def run_firm(client, model, max_redo=1, firm=None, business_label=""):
     """Run the firm; returns the full EngagementState (map, every stage's output,
     the recorded log, and the deliverable). If `firm` is passed (the same people who sat in on
-    the interview), each agent decides from what THEY came to understand, not just the map."""
+    the interview), each agent first MORPHS to this business — synthesizing what they ingested
+    into a business-specific stance — then decides from that stance, not just the map."""
     state = EngagementState(model_dict=model.to_dict())
     state.record("principal", "convened", "conducting the engagement over the workflow map")
+
+    if firm:
+        await morph_firm(firm, business_label)
+        state.record("principal", "firm_morphed",
+                     "each member synthesized this business into a stance to reason from",
+                     consumed_from="discovery")
 
     opportunities = await _attempt(lambda: find_opportunities(client, model, _mem(firm, "analyst")))
     state.opportunities = opportunities

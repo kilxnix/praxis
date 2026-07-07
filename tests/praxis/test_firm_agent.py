@@ -6,10 +6,14 @@ IDENT = Identity("skeptic", "Idris", "skeptic", "You guard the owner.")
 
 
 class _Client:
-    """observe -> a belief; reflect -> a durable lesson."""
+    """Routes by prompt: reflect -> a lesson; morph -> a stance; observe -> a belief."""
     async def complete_json(self, system, user, **kw):
-        if "durable lessons" in system.lower() or "transferable lesson" in system.lower():
+        s = system.lower()
+        if "durable lessons" in s or "transferable lesson" in s:
             return {"lessons": ["owners who bill at night are the ones who fear errors most"]}
+        if "synthesize" in s or "reasoning stance" in s:
+            return {"stance": "This is a solo operator who guards his paper book; I will weight "
+                               "adoption friction and distrust anything that makes him stop mid-job."}
         return {"beliefs": [{"note": "they re-key everything by hand at night",
                              "grounds": "I type it all into QuickBooks"}]}
     async def complete(self, system, messages, **kw):
@@ -40,6 +44,18 @@ async def test_understanding_is_compact_and_uses_mind(tmp_path):
     u = agent.understanding(max_notes=8)
     assert "single points of failure" in u               # the learned mind feeds the decision
     assert u.count("belief number") <= 8                  # capped, not the whole verbose wall
+
+
+@pytest.mark.asyncio
+async def test_morph_synthesizes_a_stance_that_leads_understanding(tmp_path):
+    agent = FirmAgent(IDENT, _Client(), AgentMind("skeptic", path=str(tmp_path / "skeptic.json")))
+    await agent.observe("Interviewer: how do you bill?\nOwner: I type it in at night", "", 1)
+    assert agent.stance == ""                                  # no synthesis yet — only ingested
+    stance = await agent.morph("some_hvac")
+    assert "solo operator" in stance                           # processed into a coherent stance
+    u = agent.understanding()
+    assert u.startswith("HOW YOU'VE SIZED UP THIS BUSINESS")   # decisions reason from the morph first
+    assert "solo operator" in u
 
 
 def test_assemble_firm_loads_persisted_minds(tmp_path):

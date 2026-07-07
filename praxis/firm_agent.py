@@ -128,6 +128,7 @@ class FirmAgent:
         self.client = client
         self.memory = AgentMemory()                       # this business (wiped each engagement)
         self.mind = mind or AgentMind(identity.key)       # everything they've learned (persists)
+        self.stance = ""    # who they've morphed into FOR THIS business — synthesized, then reasoned from
 
     async def observe(self, exchange, map_text, turn):
         """Watch the latest of the live interview and update this agent's understanding of the
@@ -155,15 +156,44 @@ class FirmAgent:
                 added += len(self.memory.beliefs) - before
         return added
 
-    def understanding(self, max_notes=8):
-        """The COMPACT read a decision reasons from: the lessons this agent brings from past
-        engagements (their mind) plus the sharpest of what they understood about THIS business —
-        notes only, capped, so a decision gets a lens, not a verbose wall of every thought."""
-        parts = []
+    async def morph(self, business_label=""):
+        """PROCESS everything ingested about this business into one coherent, first-person
+        reasoning stance — reshape into the version of yourself THIS specific business needs.
+        This is the synthesis that turns a pile of notes into understanding; decisions then
+        reason from this stance, not a raw list. Returns (and stores) the stance."""
+        if self.memory.is_empty() and not self.mind.lessons:
+            self.stance = ""
+            return ""
+        system = (
+            self.identity.preamble() + "\n\n"
+            "You have watched this business closely. Now SYNTHESIZE — do not list. In a short "
+            "first-person paragraph (3-5 sentences), say who you need to be for THIS specific "
+            "business and this specific owner: what their reality actually is, what that means "
+            "for your role, and therefore what you will weight, watch for, and be wary of when "
+            "you make your calls. Reconcile what you've seen into ONE coherent stance and resolve "
+            "the tensions rather than listing them. Speak as yourself.\n\n"
+            "Return JSON {\"stance\": \"<your business-specific reasoning stance>\"}."
+        )
         learned = self.mind.recall()
-        if learned:
-            parts.append("WHAT YOU'VE LEARNED ACROSS PAST ENGAGEMENTS (reason with this):\n"
-                         + learned)
+        user = (f"THE BUSINESS: {business_label or '(a small business)'}\n\n"
+                + (f"WHAT YOU'VE LEARNED ACROSS PAST BUSINESSES:\n{learned}\n\n" if learned else "")
+                + f"WHAT YOU UNDERSTOOD ABOUT THIS ONE:\n{self.memory.recall()}")
+        result = await self.client.complete_json(system, user, max_tokens=400)
+        self.stance = (result.get("stance") or "").strip() if isinstance(result, dict) else ""
+        return self.stance
+
+    def understanding(self, max_notes=8):
+        """The read a decision reasons from. Leads with the morphed, business-specific stance
+        (the synthesis) when there is one; falls back to learned lessons otherwise. Either way,
+        supported by a capped view of this business — a lens, not a verbose wall of every thought."""
+        parts = []
+        if self.stance:
+            parts.append("HOW YOU'VE SIZED UP THIS BUSINESS — reason from this:\n" + self.stance)
+        else:
+            learned = self.mind.recall()
+            if learned:
+                parts.append("WHAT YOU'VE LEARNED ACROSS PAST ENGAGEMENTS (reason with this):\n"
+                             + learned)
         notes = [b.note for b in self.memory.beliefs][-max_notes:]
         if notes:
             parts.append("WHAT YOU UNDERSTAND ABOUT THIS BUSINESS:\n"
@@ -236,6 +266,15 @@ def assemble_firm(client, minds_dir=DEFAULT_MINDS_DIR):
     engagement, loaded from disk. New firm the first time; seasoned after many."""
     return {ident.key: FirmAgent(ident, client, AgentMind.load(ident.key, minds_dir))
             for ident in ROSTER}
+
+
+async def morph_firm(firm, business_label=""):
+    """Before the firm decides, every member synthesizes what they ingested into a
+    business-specific stance — they morph to fit this business. Concurrent."""
+    import asyncio
+    if not firm:
+        return
+    await asyncio.gather(*[a.morph(business_label) for a in firm.values()])
 
 
 async def reflect_firm(firm, business_label=""):
