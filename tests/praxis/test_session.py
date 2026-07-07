@@ -1,6 +1,6 @@
 import pytest
-from praxis.session import DiscoverySession
-from praxis.models import NodeType
+from praxis.session import DiscoverySession, CLOSING
+from praxis.models import NodeType, EdgeType, Evidence
 
 class ScriptedClient:
     """Fakes both extraction (returns queued deltas) and questioning (echoes)."""
@@ -36,3 +36,40 @@ async def test_session_stops_at_max_turns():
     s = DiscoverySession(ScriptedClient([]), max_turns=1)
     await s.submit("uh, we do stuff")
     assert s.is_intake_complete() is True  # hit the turn cap
+
+
+def _satisfied_step(m, name):
+    def ev():
+        return [Evidence("q", 1)]
+    s = m.add_node(NodeType.STEP, name, ev())
+    a = m.add_node(NodeType.ACTOR, name + "_a", ev())
+    t = m.add_node(NodeType.TOOL, name + "_t", ev())
+    o = m.add_node(NodeType.ARTIFACT, name + "_o", ev())
+    m.add_edge(EdgeType.PERFORMS, a.id, s.id, ev())
+    m.add_edge(EdgeType.USES, s.id, t.id, ev())
+    m.add_edge(EdgeType.PRODUCES, s.id, o.id, ev())
+    return s
+
+
+@pytest.mark.asyncio
+async def test_closing_branch_fires_and_is_returned():
+    s = DiscoverySession(ScriptedClient([]), max_turns=1)
+    reply = await s.submit("uh we do stuff")
+    assert reply == CLOSING
+    assert s.history[-1]["content"] == CLOSING
+
+
+def test_intake_needs_two_steps_even_with_full_coverage():
+    s = DiscoverySession(ScriptedClient([]), coverage_target=0.8)
+    _satisfied_step(s.model, "one")
+    assert s.is_intake_complete() is False   # 1 step, full coverage, still not done
+    _satisfied_step(s.model, "two")
+    assert s.is_intake_complete() is True     # 2 steps + full coverage -> done
+
+
+def test_intake_incomplete_when_coverage_below_target():
+    s = DiscoverySession(ScriptedClient([]), coverage_target=0.8)
+    # two steps but only bare STEP nodes -> coverage 0.0 -> not complete
+    s.model.add_node(NodeType.STEP, "a", [Evidence("q", 1)])
+    s.model.add_node(NodeType.STEP, "b", [Evidence("q", 1)])
+    assert s.is_intake_complete() is False
