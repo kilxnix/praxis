@@ -8,14 +8,17 @@ drop the duplicate); only the grouping decision uses the LLM."""
 import json
 from praxis.models import NodeType
 
-CONSOLIDATE_SYSTEM = """You are given a list of workflow STEP labels taken from one \
-business. Some are the SAME action worded differently (tense, synonyms, extra words); \
-others are genuinely different steps.
+CONSOLIDATE_SYSTEM = """You are given a list of workflow STEP labels from ONE business. \
+Many describe the SAME underlying action in different words — a different verb, tense, or \
+extra detail. For example "draft proposal", "type proposal manually", and "write the \
+proposal" are ONE step; "copy lead into spreadsheet" and "paste details into the sheet" \
+are ONE step. Group all such duplicates AGGRESSIVELY.
 
-Return JSON {"groups": [[...], ...]}. Each group is a list of 2+ labels from the input \
-that mean the same single step. Put the shortest, clearest label FIRST in each group \
-(it becomes canonical). Only group labels that are truly the same action. Do NOT group \
-steps that merely happen near each other. Omit any label that has no duplicate."""
+Return JSON {"groups": [[...], ...]}. Each group lists 2+ input labels that are the same \
+step; put the shortest, clearest label FIRST (it becomes canonical). Merge steps that \
+share the same core action or purpose even if worded quite differently. Do NOT group \
+steps that are genuinely different actions (e.g. "draft proposal" vs "send invoice"). \
+Omit any label that has no duplicate."""
 
 
 def _merge(model, canon_id, dup_id):

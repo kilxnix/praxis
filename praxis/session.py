@@ -47,9 +47,10 @@ class DiscoverySession:
         apply_deltas(self.model, deltas, self.turn)
         if len(self.model.nodes_of(NodeType.STEP)) > before:
             self.last_new_step_turn = self.turn   # a new step surfaced this turn
-        if self.turn % 3 == 0:
+        if self.turn % 2 == 0:
             await consolidate_steps(self.client, self.model)
         if self.is_intake_complete():
+            await consolidate_steps(self.client, self.model)   # final cleanup pass
             self.history.append({"role": "assistant", "content": CLOSING})
             return CLOSING
         q = await next_question(self.client, self.model, self.history)
