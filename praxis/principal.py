@@ -9,6 +9,7 @@ Two parts:
 import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
+from praxis.discovery_signals import canonical_label
 
 START_HERE_CAP = 4   # a focused plan leads with a handful of high-impact items, not one, not ten
 
@@ -131,9 +132,20 @@ async def synthesize(client, transcript, deliverable):
     pains = [p.strip() for p in result.get("pains", []) if isinstance(p, str) and p.strip()]
     if pains:
         deliverable["pains"] = pains
-    outcome_by = {o.get("step"): (o.get("outcome") or "").strip()
-                  for o in result.get("outcomes", []) if isinstance(o, dict)}
+    # Match outcomes to recommendations by CANONICAL label — exact matching here left every
+    # recommendation without an outcome when the synthesizer reworded the step, so render fell
+    # back to the raw technical sentence for headers and to bare step labels in the rollout.
+    returned = [o for o in result.get("outcomes", []) if isinstance(o, dict)]
+    outcome_by = {canonical_label(o.get("step") or ""): (o.get("outcome") or "").strip()
+                  for o in returned if (o.get("outcome") or "").strip()}
     for e in recs:
-        if outcome_by.get(e["step"]):
-            e["outcome"] = outcome_by[e["step"]]
+        oc = outcome_by.get(canonical_label(e["step"]))
+        if oc:
+            e["outcome"] = oc
+    # Positional rescue for any recommendation the synthesizer labelled too differently to match.
+    rec_canon = {canonical_label(e["step"]) for e in recs}
+    extra = [(o.get("outcome") or "").strip() for o in returned
+             if canonical_label(o.get("step") or "") not in rec_canon and (o.get("outcome") or "").strip()]
+    for e, oc in zip([e for e in recs if not e.get("outcome")], extra):
+        e["outcome"] = oc
     return deliverable

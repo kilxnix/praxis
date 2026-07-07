@@ -22,18 +22,41 @@ class FakeClient:
 
 
 @pytest.mark.asyncio
-async def test_review_anchors_and_normalizes():
+async def test_review_matches_by_canonical_label_and_normalizes():
+    # Labels differ by case/punctuation; verdicts still map to the real interventions, one each.
     payload = {"verdicts": [
-        {"step_label": "copy leads", "verdict": "solid", "objection": ""},
-        {"step_label": "send email", "verdict": "reject", "objection": "auto-send is risky"},
-        {"step_label": "ghost", "verdict": "solid"},               # unanchored -> dropped
-        {"step_label": "copy leads", "verdict": "??", "objection": "x"},  # bad -> weak
+        {"step_label": "Copy Leads", "verdict": "solid", "objection": ""},
+        {"step_label": "send email.", "verdict": "REJECT", "objection": "auto-send is risky"},
     ]}
     out = await review(FakeClient(payload), _ivs(), _scores())
-    assert len(out) == 3
-    assert out[0].verdict == "solid"
-    assert out[1].verdict == "reject" and "risky" in out[1].objection
-    assert out[2].verdict == "weak"    # normalized
+    assert len(out) == 2
+    by = {v.step_label: v for v in out}
+    assert by["copy leads"].verdict == "solid"          # mapped back to the intervention's label
+    assert by["send email"].verdict == "reject" and "risky" in by["send email"].objection
+
+
+@pytest.mark.asyncio
+async def test_review_positional_fallback_rescues_reworded_labels():
+    # The model rewords every label so none string-match; it returns one verdict per
+    # intervention in order, so the positional fallback still lands them (the bug that let the
+    # whole quality gate return 0 verdicts).
+    payload = {"verdicts": [
+        {"step_label": "auto-import the leads", "verdict": "solid", "objection": ""},
+        {"step_label": "sending the email out", "verdict": "weak", "objection": "risky"},
+    ]}
+    out = await review(FakeClient(payload), _ivs(), _scores())
+    assert len(out) == 2
+    by = {v.step_label: v for v in out}
+    assert by["copy leads"].verdict == "solid"
+    assert by["send email"].verdict == "weak" and "risky" in by["send email"].objection
+
+
+@pytest.mark.asyncio
+async def test_review_normalizes_unknown_verdict_to_weak():
+    payload = {"verdicts": [{"step_label": "copy leads", "verdict": "??", "objection": "x"}]}
+    out = await review(FakeClient(payload), _ivs(), _scores())
+    assert len(out) == 1
+    assert out[0].step_label == "copy leads" and out[0].verdict == "weak"
 
 
 def test_signed_off():

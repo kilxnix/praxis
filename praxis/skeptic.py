@@ -3,6 +3,7 @@
 the business to fit the tool (an Ocean-Principle violation)? Emits a verdict per intervention;
 the Principal drops rejects and carries unresolved objections into the deliverable as caveats."""
 from dataclasses import dataclass
+from praxis.discovery_signals import canonical_label
 
 VERDICTS = {"solid", "weak", "reject"}
 
@@ -43,20 +44,32 @@ def _serialize(interventions, assessments):
 async def review(client, interventions, assessments):
     if not interventions:
         return []
-    iv_steps = {iv.step_label for iv in interventions}
     result = await client.complete_json(SKEPTIC_SYSTEM,
                                         _serialize(interventions, assessments),
                                         max_tokens=2048)
-    out = []
-    for v in (result.get("verdicts", []) if isinstance(result, dict) else []):
+    raw = result.get("verdicts", []) if isinstance(result, dict) else []
+    # Match each returned verdict to a real intervention by CANONICAL label (absorbs case,
+    # punctuation, and article differences). Exact string-matching here silently dropped every
+    # verdict when the model echoed the label even slightly differently — bypassing the gate.
+    by_canon = {canonical_label(iv.step_label): iv.step_label for iv in interventions}
+    out, matched, leftover = [], set(), []
+    for v in raw:
         if not isinstance(v, dict):
             continue
-        label = v.get("step_label")
-        if label not in iv_steps:
-            continue
         verdict = (v.get("verdict") or "").strip().lower()
-        out.append(Verdict(label, verdict if verdict in VERDICTS else "weak",
-                           (v.get("objection") or "").strip()))
+        verdict = verdict if verdict in VERDICTS else "weak"
+        objection = (v.get("objection") or "").strip()
+        real = by_canon.get(canonical_label(v.get("step_label") or ""))
+        if real and real not in matched:
+            out.append(Verdict(real, verdict, objection))
+            matched.add(real)
+        else:
+            leftover.append((verdict, objection))
+    # Rescue verdicts whose label didn't canonically match: the Skeptic returns exactly one
+    # verdict per intervention in order, so pair leftovers to still-unmatched interventions.
+    unmatched = [iv.step_label for iv in interventions if iv.step_label not in matched]
+    for (verdict, objection), label in zip(leftover, unmatched):
+        out.append(Verdict(label, verdict, objection))
     return out
 
 

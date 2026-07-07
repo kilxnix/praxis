@@ -53,20 +53,30 @@ REDESIGN_SYSTEM = (
 )
 
 
+def _text(v):
+    """Coerce an LLM field to a clean string. The model sometimes returns a list (e.g.
+    inputs_needed: ["camera", "photo access"]) where we expect prose; join rather than crash."""
+    if isinstance(v, list):
+        return "; ".join(_text(x) for x in v if x is not None).strip()
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
 def _parse_interventions(result, allowed_steps):
     out, seen = [], set()
     for iv in (result.get("interventions", []) if isinstance(result, dict) else []):
         if not isinstance(iv, dict):
             continue
         label = iv.get("step_label")
-        what = (iv.get("what_it_does") or "").strip()
+        what = _text(iv.get("what_it_does"))
         if label in allowed_steps and what and label not in seen:
             seen.add(label)
             out.append(Intervention(
                 label, what,
-                (iv.get("where_it_plugs_in") or "").strip(),
-                (iv.get("inputs_needed") or "").strip(),
-                (iv.get("changes_for_people") or "").strip(),
+                _text(iv.get("where_it_plugs_in")),
+                _text(iv.get("inputs_needed")),
+                _text(iv.get("changes_for_people")),
             ))
     return out
 

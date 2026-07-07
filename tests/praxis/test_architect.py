@@ -41,6 +41,21 @@ async def test_design_interventions_keeps_anchored_drops_ungrounded():
 
 
 @pytest.mark.asyncio
+async def test_design_interventions_coerces_list_valued_fields():
+    # The model sometimes returns list values where we expect prose; join, don't crash.
+    payload = {"interventions": [
+        {"step_label": "copy leads to spreadsheet",
+         "what_it_does": "read the inbox and write rows",
+         "where_it_plugs_in": "the sheet",
+         "inputs_needed": ["inbox access", "the spreadsheet"],   # list, not string
+         "changes_for_people": "no more typing"},
+    ]}
+    ivs = await design_interventions(FakeClient(payload), _map(), _opps())
+    assert len(ivs) == 1
+    assert ivs[0].inputs_needed == "inbox access; the spreadsheet"
+
+
+@pytest.mark.asyncio
 async def test_design_interventions_empty_opportunities():
     ivs = await design_interventions(FakeClient({"interventions": []}), _map(), [])
     assert ivs == []

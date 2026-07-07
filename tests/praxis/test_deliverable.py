@@ -26,6 +26,30 @@ async def test_synthesize_adds_pains_summary_outcomes():
 
 
 @pytest.mark.asyncio
+async def test_synthesize_matches_outcomes_by_canonical_label():
+    # The synthesizer rewords the step label; the outcome must still attach (else render falls
+    # back to the raw technical sentence for the headline and to bare steps in the rollout).
+    deliverable = {"where_ai_fits": [
+        {"step": "copy leads", "what_it_does": "auto-import to the sheet"}]}
+    transcript = [{"role": "user", "content": "I copy every lead by hand"}]
+    payload = {"summary": "s", "pains": ["p"],
+               "outcomes": [{"step": "Copying Leads", "outcome": "You stop copying leads by hand"}]}
+    d = await synthesize(_FC(payload), transcript, deliverable)
+    assert d["where_ai_fits"][0]["outcome"] == "You stop copying leads by hand"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_positional_fallback_for_reworded_step():
+    deliverable = {"where_ai_fits": [
+        {"step": "copy leads", "what_it_does": "auto-import to the sheet"}]}
+    transcript = [{"role": "user", "content": "I copy every lead by hand"}]
+    payload = {"summary": "s", "pains": ["p"],
+               "outcomes": [{"step": "the whole lead intake thing", "outcome": "You stop retyping leads"}]}
+    d = await synthesize(_FC(payload), transcript, deliverable)
+    assert d["where_ai_fits"][0]["outcome"] == "You stop retyping leads"
+
+
+@pytest.mark.asyncio
 async def test_synthesize_survives_empty_result():
     deliverable = {"where_ai_fits": []}
     d = await synthesize(_FC({}), [], deliverable)
