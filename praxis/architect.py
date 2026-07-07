@@ -1,0 +1,61 @@
+"""The Architect: designs a concrete AI intervention for each opportunity the Analyst
+found. Specific to the client's own tools and steps (Ocean-safe). It designs only — it does
+not score/prioritize (Business-case) or build the automation (SP2, the Build Wing)."""
+from dataclasses import dataclass
+from praxis.analyst import serialize_map
+
+ARCHITECT_SYSTEM = (
+    "You are an AI-implementation architect. You are given a business's workflow map and a "
+    "list of AI-opportunity points already found in it. Design ONE concrete, minimal AI "
+    "intervention for each opportunity.\n\n"
+    "For each, describe in plain language, specific to THEIR tools and step:\n"
+    "- what_it_does: the concrete AI action\n"
+    "- where_it_plugs_in: which existing step or tool it hooks into\n"
+    "- inputs_needed: what data or access it requires to work\n"
+    "- changes_for_people: what changes for the person who does that step\n\n"
+    "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step from the opportunity>\", "
+    "\"what_it_does\": \"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", "
+    "\"changes_for_people\": \"..\"} ] }.\n"
+    "Be specific to their actual tools. Keep each intervention minimal and practical. Do NOT "
+    "estimate ROI or rank the interventions."
+)
+
+
+@dataclass
+class Intervention:
+    step_label: str
+    what_it_does: str
+    where_it_plugs_in: str
+    inputs_needed: str
+    changes_for_people: str
+
+
+def _serialize_opps(opportunities):
+    return "\n".join(
+        f"- step '{o.step_label}' [{o.capability}]: {o.description}"
+        for o in opportunities
+    )
+
+
+async def design_interventions(client, model, opportunities):
+    """One intervention per opportunity, anchored to the opportunity's step."""
+    if not opportunities:
+        return []
+    opp_steps = {o.step_label for o in opportunities}
+    user = ("WORKFLOW MAP:\n" + serialize_map(model)
+            + "\n\nOPPORTUNITIES:\n" + _serialize_opps(opportunities))
+    result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
+    out = []
+    for iv in (result.get("interventions", []) if isinstance(result, dict) else []):
+        if not isinstance(iv, dict):
+            continue
+        label = iv.get("step_label")
+        what = (iv.get("what_it_does") or "").strip()
+        if label in opp_steps and what:   # anchor to a real opportunity + must say what it does
+            out.append(Intervention(
+                label, what,
+                (iv.get("where_it_plugs_in") or "").strip(),
+                (iv.get("inputs_needed") or "").strip(),
+                (iv.get("changes_for_people") or "").strip(),
+            ))
+    return out

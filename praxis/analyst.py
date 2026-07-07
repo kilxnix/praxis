@@ -81,7 +81,8 @@ async def find_opportunities(client, model):
     step_labels = {s.label for s in model.nodes_of(NodeType.STEP)}
     if not step_labels:
         return []
-    result = await client.complete_json(ANALYST_SYSTEM, serialize_map(model))
+    result = await client.complete_json(ANALYST_SYSTEM, serialize_map(model),
+                                        max_tokens=2048)
     out = []
     for o in (result.get("opportunities", []) if isinstance(result, dict) else []):
         if not isinstance(o, dict):
