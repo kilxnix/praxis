@@ -312,6 +312,36 @@ the emergent graph + confidence mechanism is the linchpin. So the implementation
 map from a real conversation — before investing in the five downstream agents that all depend
 on it.
 
+### Constraints the design lives within (not defects)
+
+A follow-up review noted external limits that no amount of design can remove. Recording them
+so they are planned around, not discovered late:
+
+- **Local-model capability ceiling.** Strategic reasoning and creative intervention design
+  are bounded by the best *local* models available. Tiered models and heavy Skeptic
+  prompting raise the floor; they cannot exceed the ceiling. This is the price of strict
+  offline operation, and it is a deliberate trade (privacy + self-contained over frontier
+  quality). Revisit only if the offline constraint is ever relaxed.
+- **Not "set it and forget it."** Fire-and-forget applies *after* intake. The intake
+  interview and the final human read of the deliverable are real human touch points;
+  operator judgment there materially affects quality. The safeguards in §4 reduce, but do
+  not eliminate, sensitivity to a weak intake.
+- **Compute economics bound throughput.** A full engagement — especially with redo rounds —
+  consumes meaningful local GPU time. Realistic volume for a solo operator on modest
+  hardware is a handful of serious engagements per period, not a firehose. The Skeptic's
+  bounded loop is also a cost control, not only a quality control.
+- **Ongoing human upkeep.** Prompt/persona iteration (SP1) and Tool Catalog maintenance
+  (SP2) are standing human responsibilities, not one-time setup.
+
+### One open design decision surfaced by review: who does Discovery interview?
+
+The spec does not yet pin down whether Praxis interviews the **end client directly** or an
+**operator acting as proxy**. This changes Discovery's voice and, more importantly, evidence
+fidelity (first-hand quotes vs. an operator's paraphrase). **Recommended default: interview
+the client directly** — it maximizes autonomy (true to "run on its own") and keeps evidence
+first-hand, with the operator setting up the engagement and doing the final human read. To be
+confirmed with the founder before the Discovery prototype, since it shapes that prototype.
+
 ---
 
 ## 9. Open questions (deferred, not blocking)
