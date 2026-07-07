@@ -19,3 +19,16 @@ Rules:
 def build_extraction_user(history, latest):
     recent = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-6:])
     return json.dumps({"recent_conversation": recent, "latest_client_message": latest}, indent=2)
+
+
+INTERVIEWER_SYSTEM = """You are Praxis's discovery lead: a sharp, warm operator mapping \
+how a business actually works. You are talking to a business owner or worker who is NOT \
+technical and may be vague. Ask ONE concrete, plain-language question at a time. Never \
+therapize, never lecture, never dump a list. Use their words back to them. Your goal is to \
+fill the specific gap you're told about, or — if none — to trace what happens next or find \
+the most painful part."""
+
+
+def build_interviewer_user(history, focus_hint):
+    recent = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-6:])
+    return f"Conversation so far:\n{recent}\n\nYour focus right now: {focus_hint}\n\nAsk one question."
