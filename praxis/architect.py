@@ -37,23 +37,28 @@ def _serialize_opps(opportunities):
     )
 
 
-async def design_interventions(client, model, opportunities):
-    """One intervention per opportunity, anchored to the opportunity's step."""
-    if not opportunities:
-        return []
-    opp_steps = {o.step_label for o in opportunities}
-    user = ("WORKFLOW MAP:\n" + serialize_map(model)
-            + "\n\nOPPORTUNITIES:\n" + _serialize_opps(opportunities))
-    result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
-    out = []
-    seen = set()
+REDESIGN_SYSTEM = (
+    "You are an AI-implementation architect. A skeptic REJECTED or flagged your previous "
+    "intervention designs for specific steps. Redesign each one to directly ADDRESS the "
+    "objection. If the objection is that it forces the business to change how they work "
+    "(an Ocean-Principle violation), propose a smaller, safer intervention that fits how "
+    "they ACTUALLY operate — or a human-in-the-loop version.\n\n"
+    "For each, give what_it_does, where_it_plugs_in, inputs_needed, changes_for_people, "
+    "specific to their tools.\n\n"
+    "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step>\", \"what_it_does\": "
+    "\"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", \"changes_for_people\": "
+    "\"..\"} ] }."
+)
+
+
+def _parse_interventions(result, allowed_steps):
+    out, seen = [], set()
     for iv in (result.get("interventions", []) if isinstance(result, dict) else []):
         if not isinstance(iv, dict):
             continue
         label = iv.get("step_label")
         what = (iv.get("what_it_does") or "").strip()
-        # anchor to a real opportunity, must say what it does, one intervention per step
-        if label in opp_steps and what and label not in seen:
+        if label in allowed_steps and what and label not in seen:
             seen.add(label)
             out.append(Intervention(
                 label, what,
@@ -62,3 +67,29 @@ async def design_interventions(client, model, opportunities):
                 (iv.get("changes_for_people") or "").strip(),
             ))
     return out
+
+
+async def design_interventions(client, model, opportunities):
+    """One intervention per opportunity, anchored to the opportunity's step."""
+    if not opportunities:
+        return []
+    opp_steps = {o.step_label for o in opportunities}
+    user = ("WORKFLOW MAP:\n" + serialize_map(model)
+            + "\n\nOPPORTUNITIES:\n" + _serialize_opps(opportunities))
+    result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
+    return _parse_interventions(result, opp_steps)
+
+
+async def redesign_interventions(client, model, opportunities, objections):
+    """Redesign flagged interventions to address the Skeptic's objections (the bounce-back)."""
+    if not opportunities:
+        return []
+    opp_steps = {o.step_label for o in opportunities}
+    obj_lines = "\n".join(
+        f"- step '{o.step_label}': objection was: {objections.get(o.step_label) or '(flagged, weak)'}"
+        for o in opportunities
+    )
+    user = ("WORKFLOW MAP:\n" + serialize_map(model)
+            + "\n\nFLAGGED OPPORTUNITIES + THE SKEPTIC'S OBJECTIONS:\n" + obj_lines)
+    result = await client.complete_json(REDESIGN_SYSTEM, user, max_tokens=2048)
+    return _parse_interventions(result, opp_steps)

@@ -64,10 +64,13 @@ async def test_run_firm_produces_deliverable():
                           "rationale": "obvious"}]},
         {"verdicts": [{"step_label": "copy leads", "verdict": "solid", "objection": ""}]},
     ]
-    d = await run_firm(QueueClient(responses), m)
+    state = await run_firm(QueueClient(responses), m)
+    d = state.deliverable
     assert d["workflow_mirror"] == ["copy leads"]
     assert [e["step"] for e in d["where_ai_fits"]] == ["copy leads"]
     assert d["rollout"] == ["copy leads"]
+    actions = [e.action for e in state.log]                 # the engagement is recorded
+    assert "found_opportunities" in actions and "assembled_deliverable" in actions
 
 
 class RetryClient:
@@ -94,5 +97,47 @@ class RetryClient:
 async def test_run_firm_retries_empty_stage():
     m = WorkflowModel()
     m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy by hand", 1)])
-    d = await run_firm(RetryClient(), m)
-    assert [e["step"] for e in d["where_ai_fits"]] == ["copy leads"]   # recovered after retry
+    state = await run_firm(RetryClient(), m)
+    assert [e["step"] for e in state.deliverable["where_ai_fits"]] == ["copy leads"]  # recovered
+
+
+class BounceClient:
+    """Skeptic rejects the first design; after the bounce-back the redesign is solid."""
+    def __init__(self):
+        self.script = [
+            {"opportunities": [{"step_label": "copy leads",
+                                "capability": "automate manual data transfer between tools",
+                                "description": "auto-import", "evidence": "by hand"}]},
+            {"interventions": [{"step_label": "copy leads", "what_it_does": "v1 auto-send all",
+                                "where_it_plugs_in": "sheet", "inputs_needed": "inbox",
+                                "changes_for_people": "none"}]},
+            {"assessments": [{"step_label": "copy leads", "effort": "low", "time_saved": "high",
+                              "risk": "high", "disruption": "low", "priority": "quick win",
+                              "rationale": "x"}]},
+            {"verdicts": [{"step_label": "copy leads", "verdict": "reject",
+                           "objection": "too risky as designed"}]},
+            # --- bounce back to Architect ---
+            {"interventions": [{"step_label": "copy leads",
+                                "what_it_does": "v2 draft for human review",
+                                "where_it_plugs_in": "sheet", "inputs_needed": "inbox",
+                                "changes_for_people": "review first"}]},
+            {"assessments": [{"step_label": "copy leads", "effort": "low", "time_saved": "high",
+                              "risk": "low", "disruption": "low", "priority": "quick win",
+                              "rationale": "safer"}]},
+            {"verdicts": [{"step_label": "copy leads", "verdict": "solid", "objection": ""}]},
+        ]
+    async def complete_json(self, system, user, **kw):
+        return self.script.pop(0) if self.script else {}
+
+
+@pytest.mark.asyncio
+async def test_run_firm_bounces_rejected_to_architect():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "copy leads", [Evidence("by hand", 1)])
+    state = await run_firm(BounceClient(), m, max_redo=1)
+    actions = [e.action for e in state.log]
+    assert "bounced_to_architect" in actions          # non-linear feedback happened
+    assert "revised_interventions" in actions
+    fits = state.deliverable["where_ai_fits"]
+    assert [e["step"] for e in fits] == ["copy leads"]  # the redesign shipped
+    assert "review" in fits[0]["what_it_does"]          # it's the v2, safer design

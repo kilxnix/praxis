@@ -88,5 +88,5 @@ async def next_question(client, model, history):
     user = P.build_interviewer_user(history, hint)
     text = await client.complete(P.INTERVIEWER_SYSTEM,
                                  [{"role": "user", "content": user}],
-                                 max_tokens=120, temperature=0.7)
+                                 max_tokens=120, temperature=0.45)
     return text.strip(), intent
