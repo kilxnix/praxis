@@ -30,3 +30,32 @@ async def test_apply_deltas_reuses_nodes_and_links_edges():
     apply_deltas(m, deltas, turn=1)
     assert m.find_node("me", NodeType.ACTOR) is not None
     assert len(m.edges) == 1
+
+@pytest.mark.asyncio
+async def test_extract_drops_edge_with_missing_quote_key():
+    payload = {"deltas": [
+        {"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "actor",
+         "target_label": "x", "target_type": "step"},
+    ]}
+    assert await extract_deltas(FakeClient(payload), [], "msg", turn=1) == []
+
+@pytest.mark.asyncio
+async def test_extract_drops_whitespace_only_quote():
+    payload = {"deltas": [{"op": "add_node", "node_type": "step", "label": "s", "quote": "   "}]}
+    assert await extract_deltas(FakeClient(payload), [], "msg", turn=1) == []
+
+@pytest.mark.asyncio
+async def test_extract_drops_edge_with_invalid_endpoint_type():
+    payload = {"deltas": [
+        {"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "bogus",
+         "target_label": "x", "target_type": "step", "quote": "I do x"},
+    ]}
+    assert await extract_deltas(FakeClient(payload), [], "msg", turn=1) == []
+
+@pytest.mark.asyncio
+async def test_apply_deltas_skips_unresolvable_edge_without_crashing():
+    m = WorkflowModel()
+    deltas = [{"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "bogus",
+               "target_label": "x", "target_type": "step", "quote": "q"}]
+    apply_deltas(m, deltas, turn=1)  # must not raise
+    assert len(m.edges) == 0
