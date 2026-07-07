@@ -4,7 +4,7 @@ This registry is the substrate a future learning loop will extend."""
 from dataclasses import dataclass
 from typing import Callable
 from praxis.models import NodeType, EdgeType
-from praxis.coverage import analyze_coverage, biggest_gap
+from praxis.coverage import analyze_coverage
 from praxis.discovery_signals import is_vague
 
 _FACET_Q = {
@@ -39,28 +39,30 @@ def _steps(state):
 
 
 def _nonfriction_gap(state):
-    gap = biggest_gap(state.coverage)
-    if not gap:
-        return None
-    # Only suggest completing facets if step lacks minimum required coverage:
-    # at least actor + tool + (input OR output). If those are satisfied,
-    # any remaining missing facets (input when output exists, or friction)
-    # are optional and shouldn't block other plays.
+    """Return (step_node, missing_facets) for the UNSATISFIED step closest to done
+    (fewest missing required facets), so we finish steps rather than spreading thin.
+    A step is satisfied at actor + tool + (input OR output); missing facets beyond that
+    are not chased here. None if every step is already satisfied."""
     m = state.model
+    best = None
     for s in _steps(state):
-        if s.id == gap.step_id:
-            out_edges = m.edges_from(s.id)
-            in_edges = [e for e in m.edges.values() if e.target == s.id]
-            has_actor = any(e.type == EdgeType.PERFORMS for e in in_edges)
-            has_tool = any(e.type == EdgeType.USES for e in out_edges)
-            has_io = any(e.type in (EdgeType.CONSUMES, EdgeType.PRODUCES) for e in out_edges)
-            # If step has minimum coverage, don't block other plays by suggesting completion
-            if has_actor and has_tool and has_io:
-                return None
-            break
-
-    facets = [f for f in gap.missing if f in _FACET_Q]
-    return (gap, facets) if facets else None
+        out_edges = m.edges_from(s.id)
+        in_edges = [e for e in m.edges.values() if e.target == s.id]
+        has_actor = any(e.type == EdgeType.PERFORMS for e in in_edges)
+        has_tool = any(e.type == EdgeType.USES for e in out_edges)
+        has_io = any(e.type in (EdgeType.CONSUMES, EdgeType.PRODUCES) for e in out_edges)
+        if has_actor and has_tool and has_io:
+            continue
+        missing = []
+        if not has_actor:
+            missing.append("actor")
+        if not has_tool:
+            missing.append("tool")
+        if not has_io:
+            missing.append("output")
+        if best is None or len(missing) < len(best[1]):
+            best = (s, missing)
+    return best
 
 
 def _satisfied_step_without_friction(state):
@@ -88,7 +90,7 @@ REGISTRY = [
                            "the very first thing that happens when the work starts.")),
     Play("complete_step_facets", "question", 70,
          matches=lambda st: _nonfriction_gap(st) is not None,
-         focus=lambda st: (lambda g: f"For the step '{g[0].step_label}', find out: "
+         focus=lambda st: (lambda g: f"For the step '{g[0].label}', find out: "
                            + ", ".join(_FACET_Q[f] for f in g[1])
                            + ". Ask one concrete question about it.")(_nonfriction_gap(st))),
     Play("probe_after_vague", "question", 60,

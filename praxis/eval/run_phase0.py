@@ -28,7 +28,7 @@ async def main(out_dir="phase0_out", scenario_keys=None):
     try:
         for sc in scenarios:
             result = await run_scenario(interviewer, sim, sc, clock=time.monotonic,
-                                        max_turns=35, coverage_target=1.0)
+                                        max_turns=25, coverage_target=1.0)
             save_run(result, out_dir)
             card = blank_scorecard(sc.key)
             card["auto"] = structural_score(result.model_dict)

@@ -10,8 +10,9 @@ Return JSON {"deltas":[...]}. Each delta is one of:
 - {"op":"add_node","node_type":"step|actor|tool|artifact|friction","label":"<short, their words>","quote":"<exact phrase>"}
 - {"op":"add_edge","edge_type":"sequence|performs|uses|produces|consumes|causes","source_label":"..","source_type":"..","target_label":"..","target_type":"..","quote":"<exact phrase>"}
 
-STEPS — the most important rule:
-- A step is ONE concrete action, labelled as a SHORT verb-object phrase in their words: "take order", "bake bread", "send invoice". Max 4 words.
+STEPS — the most important rules:
+- A step is ONE meaningful business ACTIVITY that moves the work forward, labelled as a SHORT verb-object phrase in their words: "take order", "bake bread", "send invoice". Max 4 words.
+- Steps must be at the right GRAIN. Do NOT create a step for a physical micro-motion or a way of doing a step ("scan columns", "toggle between tabs", "keep files side by side", "click the cell", "scroll down"). Those are HOW one step is done, not separate steps — fold them into the real activity (e.g. "reconcile data"). Aim for a handful of real steps, not dozens of motions.
 - Do NOT make steps out of feelings, hopes, guesses, or complaints ("hoping it sold", "before it burns", "we just wing it"). Those are frictions at most, or nothing.
 - When you add a step, in the SAME response also emit the edges the person stated for it:
     actor performs step (performs: actor -> step),
