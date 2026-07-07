@@ -3,6 +3,7 @@ apply them to the WorkflowModel, and ask the next gap-driven question."""
 from praxis.models import WorkflowModel, NodeType, EdgeType, Evidence
 from praxis import discovery_prompts as P
 from praxis.coverage import analyze_coverage, biggest_gap
+from praxis.discovery_signals import canonical_label, is_valid_step_label
 
 _VALID_NODE = {t.value for t in NodeType}
 _VALID_EDGE = {t.value for t in EdgeType}
@@ -22,6 +23,8 @@ async def extract_deltas(client, history, latest_msg, turn):
         op = d.get("op")
         try:
             if op == "add_node" and d.get("node_type") in _VALID_NODE and d.get("label"):
+                if d["node_type"] == "step" and not is_valid_step_label(d["label"]):
+                    continue
                 out.append(d)
             elif op == "add_edge" and d.get("edge_type") in _VALID_EDGE \
                     and d.get("source_label") and d.get("target_label") \
@@ -33,11 +36,12 @@ async def extract_deltas(client, history, latest_msg, turn):
 
 
 def _get_or_add(model, label, ntype, ev):
-    existing = model.find_node(label, ntype)
-    if existing:
-        existing.evidence.append(ev)
-        existing.confidence.evidence_count += 1
-        return existing
+    target = canonical_label(label)
+    for n in model.nodes.values():
+        if n.type == ntype and canonical_label(n.label) == target:
+            n.evidence.append(ev)
+            n.confidence.evidence_count += 1
+            return n
     return model.add_node(ntype, label, [ev])
 
 
