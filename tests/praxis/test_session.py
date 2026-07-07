@@ -59,12 +59,26 @@ async def test_closing_branch_fires_and_is_returned():
     assert s.history[-1]["content"] == CLOSING
 
 
-def test_intake_needs_two_steps_even_with_full_coverage():
-    s = DiscoverySession(ScriptedClient([]), coverage_target=0.8)
-    _satisfied_step(s.model, "one")
-    assert s.is_intake_complete() is False   # 1 step, full coverage, still not done
-    _satisfied_step(s.model, "two")
-    assert s.is_intake_complete() is True     # 2 steps + full coverage -> done
+def test_intake_needs_min_steps_even_with_full_coverage():
+    s = DiscoverySession(ScriptedClient([]), coverage_target=0.8,
+                         min_steps=3, saturation_gap=4)
+    for lbl in ("one", "two"):
+        _satisfied_step(s.model, lbl)
+    s.turn, s.last_new_step_turn = 10, 0     # saturated, but only 2 steps
+    assert s.is_intake_complete() is False   # under min_steps -> not done
+    _satisfied_step(s.model, "three")        # now 3 satisfied steps
+    assert s.is_intake_complete() is True     # >= min_steps + full coverage + saturated
+
+
+def test_intake_incomplete_until_saturated():
+    s = DiscoverySession(ScriptedClient([]), coverage_target=0.8,
+                         min_steps=3, saturation_gap=4)
+    for lbl in ("one", "two", "three"):
+        _satisfied_step(s.model, lbl)
+    s.turn, s.last_new_step_turn = 5, 4      # only 1 turn since a new step surfaced
+    assert s.is_intake_complete() is False   # not yet saturated
+    s.last_new_step_turn = 1                 # 4 turns since the last new step
+    assert s.is_intake_complete() is True
 
 
 def test_intake_incomplete_when_coverage_below_target():

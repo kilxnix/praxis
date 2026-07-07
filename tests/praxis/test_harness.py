@@ -56,6 +56,13 @@ class CoverageCompletingStub:
              "target_label": "sheet", "target_type": "tool", "quote": "then B"},
             {"op": "add_edge", "edge_type": "produces", "source_label": "B", "source_type": "step",
              "target_label": "outB", "target_type": "artifact", "quote": "then B"},
+            {"op": "add_node", "node_type": "step", "label": "C", "quote": "lastly C"},
+            {"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "actor",
+             "target_label": "C", "target_type": "step", "quote": "lastly C"},
+            {"op": "add_edge", "edge_type": "uses", "source_label": "C", "source_type": "step",
+             "target_label": "sheet", "target_type": "tool", "quote": "lastly C"},
+            {"op": "add_edge", "edge_type": "produces", "source_label": "C", "source_type": "step",
+             "target_label": "outC", "target_type": "artifact", "quote": "lastly C"},
         ]}
     async def complete(self, system, messages, **kw):
         return "what next?"
@@ -63,8 +70,11 @@ class CoverageCompletingStub:
 
 @pytest.mark.asyncio
 async def test_run_scenario_completes_via_coverage_not_maxturns():
-    sc = Scenario("cov", "biz", "brief", "A then B in a sheet")
+    # Stub surfaces 3 fully-satisfied steps on turn 1 and nothing new after, so the
+    # session completes once saturated (>= min_steps, coverage 1.0, no new steps for
+    # saturation_gap turns) — well before the 25-turn cap.
+    sc = Scenario("cov", "biz", "brief", "A then B then C in a sheet")
     ticks = iter([0.0, 1.0])
     res = await run_scenario(CoverageCompletingStub(), SimStub(), sc,
                              clock=lambda: next(ticks), max_turns=25)
-    assert 1 <= res.turns < 25   # exited via coverage target, well before the turn cap
+    assert 1 <= res.turns < 25   # exited via coverage+saturation, not the turn cap
