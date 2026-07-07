@@ -31,10 +31,10 @@ SP1's output.
   of the company's workflow → the full firm analyzes it → produces the deliverable (the
   AI-intervention design + rollout plan). Coherent, buildable, testable, and valuable on
   its own.
-- **Sub-project 2 — The Build Wing (future, out of scope here).** Takes SP1's approved
-  design and generates *actual runnable automation* that plugs into the client's tools.
-  Dramatically harder and open-ended; cannot be responsibly specified until SP1's output
-  format is stable and "what automation means for a given client" is pinned down.
+- **Sub-project 2 — The Build Wing.** Takes SP1's prioritized interventions and generates
+  *actual runnable automation* that plugs into the client's tools. Now designed — see
+  `2026-07-06-praxis-build-wing-design.md`. Implementation is gated on SP1 existing and
+  stabilizing first.
 
 ---
 
