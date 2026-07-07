@@ -1,5 +1,5 @@
 """Deterministic, content-free signals for Discovery v2. No LLM, no network.
-Reads conversational FORM (length, hedges, novelty) and normalizes labels —
+Reads conversational FORM (length, hedges) and normalizes labels —
 never classifies business content (Ocean Principle)."""
 import re
 

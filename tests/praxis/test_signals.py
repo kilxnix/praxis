@@ -20,3 +20,12 @@ def test_is_vague():
     assert is_vague("uh, we do stuff") is True                 # <5 words
     assert is_vague("maybe we sort of handle it later somehow") is True  # hedge
     assert is_vague("I take the order in my notebook then bake") is False
+
+def test_is_valid_step_label_word_boundary_no_hedge_confound():
+    assert is_valid_step_label("bake bread and bag it") is True      # exactly 5 words, no hedge
+    assert is_valid_step_label("take the order from the phone") is False  # 6 words, no hedge
+
+def test_is_vague_word_boundary_and_empty():
+    assert is_vague("") is True                          # empty -> vague
+    assert is_vague("we take the order down") is False   # exactly 5 words, no hedge
+    assert is_vague("we take order down") is True        # 4 words -> vague
