@@ -59,34 +59,34 @@ async def test_closing_branch_fires_and_is_returned():
     assert s.history[-1]["content"] == CLOSING
 
 
-def test_intake_needs_min_steps_even_with_full_coverage():
+def test_saturated_needs_min_steps_even_with_full_coverage():
     s = DiscoverySession(ScriptedClient([]), coverage_target=0.8,
                          min_steps=3, saturation_gap=4)
     for lbl in ("one", "two"):
         _satisfied_step(s.model, lbl)
     s.turn, s.last_new_step_turn = 10, 0     # saturated, but only 2 steps
-    assert s.is_intake_complete() is False   # under min_steps -> not done
+    assert s._saturated() is False           # under min_steps -> not a stop candidate
     _satisfied_step(s.model, "three")        # now 3 satisfied steps
-    assert s.is_intake_complete() is True     # >= min_steps + full coverage + saturated
+    assert s._saturated() is True            # >= min_steps + full coverage + saturated
 
 
-def test_intake_incomplete_until_saturated():
+def test_not_saturated_until_gap():
     s = DiscoverySession(ScriptedClient([]), coverage_target=0.8,
                          min_steps=3, saturation_gap=4)
     for lbl in ("one", "two", "three"):
         _satisfied_step(s.model, lbl)
     s.turn, s.last_new_step_turn = 5, 4      # only 1 turn since a new step surfaced
-    assert s.is_intake_complete() is False   # not yet saturated
+    assert s._saturated() is False
     s.last_new_step_turn = 1                 # 4 turns since the last new step
-    assert s.is_intake_complete() is True
+    assert s._saturated() is True
 
 
-def test_intake_incomplete_when_coverage_below_target():
+def test_not_saturated_when_coverage_below_target():
     s = DiscoverySession(ScriptedClient([]), coverage_target=0.8)
-    # two steps but only bare STEP nodes -> coverage 0.0 -> not complete
+    # two bare STEP nodes -> coverage 0.0 -> not a stop candidate
     s.model.add_node(NodeType.STEP, "a", [Evidence("q", 1)])
     s.model.add_node(NodeType.STEP, "b", [Evidence("q", 1)])
-    assert s.is_intake_complete() is False
+    assert s._saturated() is False
 
 
 @pytest.mark.asyncio
@@ -95,3 +95,39 @@ async def test_transcript_starts_with_opening_line():
     assert s.history[0] == {"role": "assistant", "content": OPENING}
     await s.submit("we take orders")
     assert s.history[0]["content"] == OPENING   # opener preserved at the front
+
+
+class _GateClient:
+    """Returns empty deltas, then a controllable completeness verdict, then a question."""
+    def __init__(self, complete_flag):
+        self.jsons = [{"deltas": []}, {"complete": complete_flag, "missing": "the end"}]
+        self.i = 0
+    async def complete_json(self, system, user, **kw):
+        r = self.jsons[self.i] if self.i < len(self.jsons) else {"deltas": []}
+        self.i += 1
+        return r
+    async def complete(self, system, messages, **kw):
+        return "what happens at the very end?"
+
+
+@pytest.mark.asyncio
+async def test_completeness_gate_keeps_going_when_incomplete():
+    s = DiscoverySession(_GateClient(False), min_steps=2, saturation_gap=0, coverage_target=0.8)
+    for lbl in ("one", "two"):
+        _satisfied_step(s.model, lbl)
+    s.turn, s.last_new_step_turn = 4, 0          # will be saturated after this turn
+    reply = await s.submit("more info")
+    assert reply != CLOSING                       # saturated but NOT the whole job -> keep going
+    assert s._closed is False
+    assert s.completeness_extensions == 1
+
+
+@pytest.mark.asyncio
+async def test_completeness_gate_closes_when_whole_job_mapped():
+    s = DiscoverySession(_GateClient(True), min_steps=2, saturation_gap=0, coverage_target=0.8)
+    for lbl in ("one", "two"):
+        _satisfied_step(s.model, lbl)
+    s.turn, s.last_new_step_turn = 4, 0
+    reply = await s.submit("more info")
+    assert reply == CLOSING                       # saturated AND complete -> conclude
+    assert s.is_intake_complete() is True

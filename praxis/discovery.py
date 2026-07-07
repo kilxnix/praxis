@@ -75,16 +75,19 @@ def apply_deltas(model, deltas, turn):
             continue
 
 
-async def next_question(client, model, history):
-    last = ""
-    for m in reversed(history):
-        if m.get("role") == "user":
-            last = m.get("content", "")
-            break
-    state = InterviewState(model, last_answer=last)
-    play = select_play(state)
-    hint = play.focus(state)
-    intent = focus_target(state)   # which step + facet this question targets, or None
+async def next_question(client, model, history, focus_override=None):
+    if focus_override:
+        hint, intent = focus_override, None      # steer to a missing phase (completeness gate)
+    else:
+        last = ""
+        for m in reversed(history):
+            if m.get("role") == "user":
+                last = m.get("content", "")
+                break
+        state = InterviewState(model, last_answer=last)
+        play = select_play(state)
+        hint = play.focus(state)
+        intent = focus_target(state)   # which step + facet this question targets, or None
     user = P.build_interviewer_user(history, hint)
     text = await client.complete(P.INTERVIEWER_SYSTEM,
                                  [{"role": "user", "content": user}],
