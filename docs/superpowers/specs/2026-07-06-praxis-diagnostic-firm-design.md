@@ -62,6 +62,19 @@ is shaped around how *this* business actually works, in *its own* language. This
 principle has teeth in the design: it dictates the Workflow Model's shape (Section 4),
 and the Skeptic actively guards it (Section 5) as an explicit sign-off check.
 
+**Scope — the Ocean Principle governs *content*, not *process* or *packaging*.** This is
+the distinction that keeps it from making the product unscalable or unsellable. What
+adapts to each boat is the *substance* — which steps, tools, frictions, and interventions,
+described in the client's words. What stays *fixed and standardized* is everything a buyer
+actually needs to see a repeatable product: the engagement **process** (the §3 pipeline),
+the **deliverable structure** (the five fixed sections of §6), the **quality bar** (the
+§5 Skeptic checklist and §7 rubric), and scoping/pricing tiers. So "what you get" *is*
+describable on a one-pager — a consistent process and deliverable — even though its
+contents are bespoke every time. The variance the Ocean Principle creates is confined to
+where variance is the value; it is deliberately *not* allowed to leak into process or
+format. (This mirrors the §4 process-vs-content distinction and is the direct answer to
+"emergent models can't be productized.")
+
 ---
 
 ## 3. Architecture — blackboard + conductor
@@ -227,15 +240,23 @@ consume it directly) and a **human presentation on top** (rendered in the existi
 4. **The rollout.** A sequenced plan — quick wins first, bigger bets after — so they can
    start Monday, not drown in a transformation.
 5. **What we're NOT recommending, and why.** The honesty section. Where AI doesn't help,
-   we say so — plus any **unresolved Skeptic objections** carried over from a capped redo
-   loop (§5). This is the credibility feature — the difference between helping companies
-   *actually implement* AI and selling hype.
+   we say so. This is the credibility feature — the difference between helping companies
+   *actually implement* AI and selling hype. **Unresolved Skeptic objections** from a capped
+   redo loop (§5) are surfaced to the **operator** in the final-read layer — not dumped raw
+   into the client-facing deliverable — so the operator decides per engagement whether to
+   resolve, disclose, or hold. A flagged objection is a decision input for the human, not an
+   automatic blemish on the client's copy. (This keeps the §5 graceful-degradation safety
+   valve from *itself* becoming a quality problem.)
 
 **Actionable on its own.** Every intervention is written so a human on the client's side
 could act on it *without* the Build Wing (SP2) — the rollout's quick wins are things
 someone could start Monday by hand. SP1's value is therefore not hostage to SP2 shipping;
 SP2 automates what SP1 already makes actionable. (This is a deliberate answer to "a
-diagnosis nobody acts on" — see §8.)
+diagnosis nobody acts on" — see §8.) **Positioning caveat:** standalone, SP1 is a
+*diagnostic-and-roadmap* product, not turnkey automation. Clients sold the full
+"implementation agency" promise will expect working systems, which need SP2 — so
+SP1-only engagements must be scoped and priced honestly as diagnosis, or retention suffers.
+The standalone value is real but narrower than the top-line pitch; say so on the tin.
 
 **Format:** structured JSON + browser render, with Markdown/PDF export as an easy add-on.
 
@@ -271,7 +292,11 @@ loop, storage, confidence gating) freely, but **rewrite every prompt and persona
 scratch** for the workflow domain. The wellness prompts were shaped by modeling people
 (emotions, habits, states over time); workflow modeling has different structure and
 different failure modes. Find-replacing the old prompts would smuggle in assumptions that
-don't translate.
+don't translate. **Structural code carries subtler bias too** — the turn-taking cadence and
+evidence-handling patterns were tuned for a slow, rapport-building personal conversation, not
+a brisk business interview. Phase 0 (§8) is where such carryover surfaces: if Discovery feels
+therapeutic or paces wrong on a real business call, that's inherited cadence, and the fix is
+to retune the loop, not just the words.
 
 **Testing** (same pytest harness: `.venv\Scripts\python.exe -m pytest tests/ -v`). Two
 layers, because "did it run" and "was the diagnosis any good" are different questions:
@@ -302,15 +327,38 @@ design answers them:
 | **Skeptic is hard to tune; failure modes are asymmetric.** | Agreed — §5 gives it the heaviest model, a concrete falsifiable checklist, specific redo requests, and a **bounded loop that degrades to honest caveats** rather than thrashing. |
 | **System is brittle to shallow interview answers.** | Agreed — §4 thin-area flagging repairs gaps *during* the interactive window; §6 marks what couldn't be mapped rather than faking it. |
 | **Testing is too light for a subjective-quality task.** | Agreed and scoped — §7 adds golden-fixture engagements + a human-review rubric, and explicitly refuses to fake an automated quality oracle. |
-| **Six-agent overhead may not beat fewer, stronger agents.** | **Partial pushback.** The full firm is a deliberate product decision ("embodiment of a firm"), not incidental, and the design already mitigates cost: the conductor wakes only who's needed, and agents can share one local model. **Fallback if latency proves prohibitive in practice:** merge adjacent specialists (e.g. Analyst+Architect) — an implementation-time optimization, not a design change. We do not collapse the roster preemptively. |
+| **Six-agent overhead may not beat fewer, stronger agents.** | **Partial pushback, now made falsifiable.** The full firm is a deliberate product decision ("embodiment of a firm"), not incidental, and the design already mitigates cost: the conductor wakes only who's needed, and agents can share one local model. But rather than defend it on aesthetics, the roster is now **empirically tested against a simpler baseline** (strong Discovery + one reasoning pass + human review) during Phase 0 — kept only where it demonstrably beats the baseline enough to justify its cost, collapsed toward the baseline where it doesn't (see the Phase 0 section below). We don't collapse *preemptively*; we also don't keep it *dogmatically*. The trigger is evidence (and latency), not taste. |
 | **Repurposing person-modeling code causes domain drag.** | Agreed, cheaply — §7 keeps structural code but **rewrites all prompts/personas from scratch** for the workflow domain. |
 | **May solve the wrong bottleneck — a diagnosis nobody acts on.** | Mostly already answered: SP2 *is* the implementation half, and §6 makes SP1's deliverable **human-actionable on its own** so its value isn't hostage to SP2. |
 
-**The one thing worth de-risking before full build:** the reviewer's sharpest point is that
-the emergent graph + confidence mechanism is the linchpin. So the implementation plan should
-**prototype Discovery first** — prove it can build a solid, grounded, appropriately-grained
-map from a real conversation — before investing in the five downstream agents that all depend
-on it.
+### Phase 0 is an existential gate, not the first phase
+
+The reviews converge on one point: the emergent graph + confidence mechanism is the linchpin,
+and if Discovery can't reliably build solid maps from *real, non-expert* clients, the rest of
+the vision is built on sand. So Discovery validation is promoted from "phase one" to a
+**go/no-go gate**: we do not build the five downstream agents until Phase 0 passes.
+
+**Phase 0 pass criteria (concrete, so it can actually fail):**
+- Run Discovery against a set of **real or realistically-roleplayed non-expert interviews**
+  (vague, rambling, jargon-heavy, defensive — the hard cases, not cooperative ones).
+- On a majority, the resulting graph must be, by human review: **connected** (no orphan
+  steps), **consistently grained** (§4), **fully evidence-grounded** (no node without a
+  quote), and **honest about its gaps** (thin areas flagged, not fabricated).
+- Measure **compute time and cost per interview** on the target hardware — this is the input
+  to the throughput reality (constraints above), and it must be a real number, not a hope.
+- If Discovery *fails* this bar after prompt iteration, that is a signal to **change the
+  approach** (e.g. mandatory operator co-piloting, or narrowing to workflows/industries the
+  model handles well) — not to push forward and hope.
+
+**And empirically test whether the full firm earns its keep.** A review argued a simpler
+design (strong Discovery + one high-quality reasoning pass + human review) might reach 70–80%
+of the value at a fraction of the compute and complexity. Rather than defend the six-agent
+roster on "embodiment of a firm" aesthetics, **make it falsifiable**: once Discovery passes
+Phase 0, compare full-firm output against that simpler baseline on the same engagements. Keep
+the full roster only where it demonstrably beats the baseline enough to justify its cost;
+**collapse toward the baseline where it doesn't.** The six-brain design is the starting
+hypothesis, not a sacred commitment — the §8 "hold the line" note on roster size stands, but
+it is held *pending this evidence*, not against it.
 
 ### Constraints the design lives within (not defects)
 
@@ -321,7 +369,16 @@ so they are planned around, not discovered late:
   are bounded by the best *local* models available. Tiered models and heavy Skeptic
   prompting raise the floor; they cannot exceed the ceiling. This is the price of strict
   offline operation, and it is a deliberate trade (privacy + self-contained over frontier
-  quality). Revisit only if the offline constraint is ever relaxed.
+  quality). **It is a trade, not a lock-in:** the `ModelTier` per-agent routing already
+  supports pointing the heavy-reasoning agents (Architect, Skeptic) at a frontier model
+  with a config change, so if the offline constraint is ever relaxed for a given client,
+  quality scales without a rearchitecture. **On the competitive angle** ("clients have
+  their own frontier model, why is ours shallower?"): offline/private is the *differentiator
+  and the ICP filter* — Praxis is for clients who cannot or will not send internal workflow
+  data to a cloud provider. A client who is happy piping their processes into a frontier
+  model is not the target buyer, and that is fine. The value is not "smarter than their
+  ChatGPT"; it is "a structured, evidence-grounded, private engagement that produces an
+  actionable plan they would not assemble themselves."
 - **Not "set it and forget it."** Fire-and-forget applies *after* intake. The intake
   interview and the final human read of the deliverable are real human touch points;
   operator judgment there materially affects quality. The safeguards in §4 reduce, but do
@@ -333,16 +390,35 @@ so they are planned around, not discovered late:
 - **Ongoing human upkeep.** Prompt/persona iteration (SP1) and Tool Catalog maintenance
   (SP2) are standing human responsibilities, not one-time setup.
 
-### Design decision (resolved by review): Discovery interviews the client directly
+### Design decision (resolved by review): Discovery interviews the client directly — *with a supervision valve*
 
 **Decided: Praxis interviews the end client directly**, not an operator proxy. The evidence
 graph is built from the client's own first-hand words (maximizing evidence fidelity and the
 Ocean Principle's "in their own language"); the operator sets up the engagement and does the
-final human read of the deliverable. This is also the more autonomous option, true to "run on
-its own." Consequence for the build: the **Discovery prototype targets a real client-facing
-interview** — its voice is the personable-operator-in-the-room persona talking to a business
-owner/worker who is *not* a Praxis expert, and who may give thin or jargon-heavy answers
-(hence the §4 coverage-probe and thin-area safeguards).
+final human read of the deliverable.
+
+**But "client-direct" must not be conflated with "unsupervised."** A later review rightly
+flagged that autonomous, client-facing process discovery is the single hardest thing we ask
+of an LLM, and making it both the most client-facing *and* the least-supervised component
+would be reckless. So the decision is refined with a **supervision valve**:
+
+- **Client-direct interview is the *target* interaction** (first-hand evidence).
+- **Operator supervision is available and on-by-default until earned off.** The operator can
+  watch the interview live and inject/redirect, and — regardless of live involvement — the
+  **mapped graph gets an operator review checkpoint before the autonomous firm proceeds.**
+  This keeps the highest-risk artifact from silently feeding five downstream agents.
+- **Full hands-off autonomy is *earned*, not assumed** — it is switched on only after Phase 0
+  (below) shows Discovery reliably produces solid graphs on real, non-expert clients. Until
+  then, the graph-review checkpoint stays mandatory.
+
+This costs a little of the "fire-and-forget" purity at intake, but fire-and-forget was always
+defined as *after* intake; adding a graph-review gate at the intake boundary is consistent
+with that, and it directly answers the "weak graphs feed the whole firm" failure mode.
+
+Consequence for the build: the **Discovery prototype targets a real client-facing interview**
+— its voice is the personable-operator-in-the-room persona talking to a business owner/worker
+who is *not* a Praxis expert, and who may give thin or jargon-heavy answers (hence the §4
+coverage-probe and thin-area safeguards).
 
 ---
 
