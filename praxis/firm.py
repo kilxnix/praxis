@@ -49,12 +49,12 @@ async def run_firm(client, model, max_redo=1):
                  f"designed {len(interventions)} interventions",
                  consumed_from="analyst", count=len(interventions))
 
-    assessments = await score_interventions(client, interventions)
+    assessments = await _attempt(lambda: score_interventions(client, interventions))
     state.assessments = assessments
     state.record("business_case", "scored", f"scored {len(assessments)} interventions",
                  consumed_from="architect", count=len(assessments))
 
-    verdicts = await review(client, interventions, assessments)
+    verdicts = await _attempt(lambda: review(client, interventions, assessments))
     state.verdicts = verdicts
     ns, nw, nr = _tally(verdicts)
     state.record("skeptic", "reviewed", f"{ns} solid, {nw} weak, {nr} reject",
@@ -79,9 +79,9 @@ async def run_firm(client, model, max_redo=1):
         state.record("architect", "revised_interventions",
                      f"redesigned {len(revised)} to address the objections",
                      consumed_from="skeptic", count=len(revised))
-        assessments = await score_interventions(client, interventions)
+        assessments = await _attempt(lambda: score_interventions(client, interventions))
         state.assessments = assessments
-        verdicts = await review(client, interventions, assessments)
+        verdicts = await _attempt(lambda: review(client, interventions, assessments))
         state.verdicts = verdicts
         ns, nw, nr = _tally(verdicts)
         state.record("skeptic", "re_reviewed",
