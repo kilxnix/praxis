@@ -6,10 +6,19 @@ business, built up as they watch the engagement unfold. When they make a call, t
 from that accumulated understanding — the way a real consultant who has sat with a client for
 an hour reasons — instead of reading a flattened map once and emitting a label.
 
-The memory is the point. It is what makes an agent's judgment personal to this one business
-and this one owner, and it is what a learning loop later grows across engagements.
+Two layers of memory:
+- AgentMemory — what they understand about THIS business, built during one engagement, wiped
+  when the engagement ends.
+- AgentMind — what they've LEARNED across every business they've ever worked: durable, personal
+  lessons that persist to disk and compound. This is the part that makes them develop their own
+  mind. After each engagement they reflect and add to it; over many businesses each agent's mind
+  diverges and their reasoning becomes genuinely their own.
 """
-from dataclasses import dataclass, field
+import os
+import json
+from dataclasses import dataclass, field, asdict
+
+DEFAULT_MINDS_DIR = "firm_minds"
 
 
 @dataclass
@@ -43,6 +52,57 @@ class AgentMemory:
 
 
 @dataclass
+class Lesson:
+    """One durable, transferable thing this agent has learned — not about one business, but the
+    kind of judgment they carry into the next one. Their own, in their voice."""
+    text: str
+    from_business: str = ""
+
+
+@dataclass
+class AgentMind:
+    """What an agent has learned across every engagement — the part of them that persists and
+    compounds. Loaded from and saved to disk, so the agent genuinely develops over time."""
+    key: str
+    lessons: list = field(default_factory=list)   # list[Lesson]
+    path: str = ""
+
+    def add_lesson(self, text, from_business=""):
+        text = (text or "").strip()
+        if text:
+            self.lessons.append(Lesson(text, (from_business or "").strip()))
+
+    def recall(self, limit=12):
+        """The lessons this agent brings to a new business — most recent first, capped so the
+        mind stays a sharp lens, not an ever-growing wall."""
+        if not self.lessons:
+            return ""
+        recent = self.lessons[-limit:]
+        return "\n".join(f"- {l.text}" for l in recent)
+
+    def save(self):
+        if not self.path:
+            return
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"key": self.key, "lessons": [asdict(l) for l in self.lessons]},
+                      f, indent=2)
+
+    @classmethod
+    def load(cls, key, base_dir=DEFAULT_MINDS_DIR):
+        path = os.path.join(base_dir, f"{key}.json")
+        if os.path.exists(path):
+            try:
+                d = json.load(open(path, encoding="utf-8"))
+                lessons = [Lesson(l.get("text", ""), l.get("from_business", ""))
+                           for l in d.get("lessons", []) if isinstance(l, dict) and l.get("text")]
+                return cls(key, lessons, path)
+            except (ValueError, OSError):
+                pass
+        return cls(key, [], path)
+
+
+@dataclass
 class Identity:
     """Who this agent IS. The voice is a real disposition — how they think, what they care
     about, what they're suspicious of — written as a person, so their memory and decisions
@@ -63,10 +123,11 @@ class FirmAgent:
     design, score, judge) are made elsewhere but reason FROM this agent's recalled memory,
     so every call is informed by everything they've come to understand — not a fresh read."""
 
-    def __init__(self, identity: Identity, client):
+    def __init__(self, identity: Identity, client, mind: "AgentMind" = None):
         self.identity = identity
         self.client = client
-        self.memory = AgentMemory()
+        self.memory = AgentMemory()                       # this business (wiped each engagement)
+        self.mind = mind or AgentMind(identity.key)       # everything they've learned (persists)
 
     async def observe(self, exchange, map_text, turn):
         """Watch the latest of the live interview and update this agent's understanding of the
@@ -92,6 +153,47 @@ class FirmAgent:
                 before = len(self.memory.beliefs)
                 self.memory.remember(b.get("note"), b.get("grounds"), turn)
                 added += len(self.memory.beliefs) - before
+        return added
+
+    def understanding(self, max_notes=8):
+        """The COMPACT read a decision reasons from: the lessons this agent brings from past
+        engagements (their mind) plus the sharpest of what they understood about THIS business —
+        notes only, capped, so a decision gets a lens, not a verbose wall of every thought."""
+        parts = []
+        learned = self.mind.recall()
+        if learned:
+            parts.append("WHAT YOU'VE LEARNED ACROSS PAST ENGAGEMENTS (reason with this):\n"
+                         + learned)
+        notes = [b.note for b in self.memory.beliefs][-max_notes:]
+        if notes:
+            parts.append("WHAT YOU UNDERSTAND ABOUT THIS BUSINESS:\n"
+                         + "\n".join(f"- {n}" for n in notes))
+        return "\n\n".join(parts)
+
+    async def reflect(self, business_label=""):
+        """After an engagement, distill what you saw into DURABLE lessons for your mind — the
+        transferable judgment you carry into the next business. This is how the agent learns.
+        Returns the number of new lessons formed; the mind is saved to disk."""
+        if self.memory.is_empty():
+            return 0
+        system = (
+            self.identity.preamble() + "\n\n"
+            "You have just finished working with a business. Step back and extract the DURABLE "
+            "lessons you want to carry into FUTURE engagements — patterns about businesses like "
+            "this, judgment calls that held up, things you'll look for or be wary of next time. "
+            "Not facts about this one business; transferable lessons, in your own voice, from "
+            "your role. A few sharp lessons beat many vague ones.\n\n"
+            "Return JSON {\"lessons\": [ \"<one transferable lesson>\" ] }."
+        )
+        user = (f"THE BUSINESS YOU JUST WORKED: {business_label or '(a small business)'}\n\n"
+                f"WHAT YOU CAME TO UNDERSTAND:\n{self.memory.recall()}")
+        result = await self.client.complete_json(system, user, max_tokens=400)
+        added = 0
+        for lesson in (result.get("lessons", []) if isinstance(result, dict) else []):
+            if isinstance(lesson, str) and lesson.strip():
+                self.mind.add_lesson(lesson, business_label)
+                added += 1
+        self.mind.save()
         return added
 
 
@@ -128,7 +230,19 @@ ROSTER = [
 ]
 
 
-def assemble_firm(client):
-    """Bring the firm to life for one engagement: five people, each with a blank memory of
-    this business they are about to get to know."""
-    return {ident.key: FirmAgent(ident, client) for ident in ROSTER}
+def assemble_firm(client, minds_dir=DEFAULT_MINDS_DIR):
+    """Bring the firm to life for one engagement: five people, each with a blank memory of the
+    business they're about to meet — but carrying the MIND they've built across every past
+    engagement, loaded from disk. New firm the first time; seasoned after many."""
+    return {ident.key: FirmAgent(ident, client, AgentMind.load(ident.key, minds_dir))
+            for ident in ROSTER}
+
+
+async def reflect_firm(firm, business_label=""):
+    """After an engagement, every member reflects and grows their mind. Concurrent; returns the
+    total number of new lessons the firm learned."""
+    import asyncio
+    if not firm:
+        return 0
+    added = await asyncio.gather(*[a.reflect(business_label) for a in firm.values()])
+    return sum(added)

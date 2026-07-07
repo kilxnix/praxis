@@ -27,13 +27,24 @@ def _tally(verdicts):
             sum(1 for v in verdicts if v.verdict == "reject"))
 
 
-async def run_firm(client, model, max_redo=1):
+def _mem(firm, key):
+    """The compact understanding that agent brings to a decision — their learned lessons plus a
+    capped read of THIS business — or '' if the firm didn't sit in on the interview."""
+    agent = firm.get(key) if firm else None
+    if not agent:
+        return ""
+    text = agent.understanding()
+    return text if text.strip() else ""
+
+
+async def run_firm(client, model, max_redo=1, firm=None):
     """Run the firm; returns the full EngagementState (map, every stage's output,
-    the recorded log, and the deliverable)."""
+    the recorded log, and the deliverable). If `firm` is passed (the same people who sat in on
+    the interview), each agent decides from what THEY came to understand, not just the map."""
     state = EngagementState(model_dict=model.to_dict())
     state.record("principal", "convened", "conducting the engagement over the workflow map")
 
-    opportunities = await _attempt(lambda: find_opportunities(client, model))
+    opportunities = await _attempt(lambda: find_opportunities(client, model, _mem(firm, "analyst")))
     state.opportunities = opportunities
     state.record("analyst", "found_opportunities",
                  f"marked {len(opportunities)} AI-opportunity points",
@@ -43,18 +54,21 @@ async def run_firm(client, model, max_redo=1):
         state.record("principal", "assembled_deliverable", "no opportunities found")
         return state
 
-    interventions = await _attempt(lambda: design_interventions(client, model, opportunities))
+    interventions = await _attempt(
+        lambda: design_interventions(client, model, opportunities, _mem(firm, "architect")))
     state.interventions = interventions
     state.record("architect", "designed_interventions",
                  f"designed {len(interventions)} interventions",
                  consumed_from="analyst", count=len(interventions))
 
-    assessments = await _attempt(lambda: score_interventions(client, interventions))
+    assessments = await _attempt(
+        lambda: score_interventions(client, interventions, _mem(firm, "business_case")))
     state.assessments = assessments
     state.record("business_case", "scored", f"scored {len(assessments)} interventions",
                  consumed_from="architect", count=len(assessments))
 
-    verdicts = await _attempt(lambda: review(client, interventions, assessments))
+    verdicts = await _attempt(
+        lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
     state.verdicts = verdicts
     ns, nw, nr = _tally(verdicts)
     state.record("skeptic", "reviewed", f"{ns} solid, {nw} weak, {nr} reject",
@@ -72,16 +86,19 @@ async def run_firm(client, model, max_redo=1):
                      consumed_from="skeptic", count=len(flagged))
         flagged_opps = [o for o in opportunities if o.step_label in flagged]
         revised = await _attempt(
-            lambda: redesign_interventions(client, model, flagged_opps, objections))
+            lambda: redesign_interventions(client, model, flagged_opps, objections,
+                                           _mem(firm, "architect")))
         rev_by = {iv.step_label: iv for iv in revised}
         interventions = [rev_by.get(iv.step_label, iv) for iv in interventions]
         state.interventions = interventions
         state.record("architect", "revised_interventions",
                      f"redesigned {len(revised)} to address the objections",
                      consumed_from="skeptic", count=len(revised))
-        assessments = await _attempt(lambda: score_interventions(client, interventions))
+        assessments = await _attempt(
+            lambda: score_interventions(client, interventions, _mem(firm, "business_case")))
         state.assessments = assessments
-        verdicts = await _attempt(lambda: review(client, interventions, assessments))
+        verdicts = await _attempt(
+            lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
         state.verdicts = verdicts
         ns, nw, nr = _tally(verdicts)
         state.record("skeptic", "re_reviewed",
