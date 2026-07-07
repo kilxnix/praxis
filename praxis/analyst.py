@@ -8,13 +8,19 @@ from dataclasses import dataclass
 from praxis.models import NodeType, EdgeType
 
 CAPABILITIES = [
-    "automate manual data transfer between tools",
-    "extract structured data from documents or emails",
-    "draft or generate text (proposals, replies, summaries)",
-    "summarize or synthesize information",
-    "classify, route, or triage items",
-    "flag, predict, or detect (anomalies, churn, risk)",
-    "answer questions or look up information over their own data",
+    "automate moving data between tools (copy-paste, re-keying)",
+    "extract structured details from documents, forms, emails, or images",
+    "transcribe and summarize calls, meetings, or spoken notes",
+    "draft or generate text (replies, reports, proposals, notes)",
+    "summarize or synthesize information from many sources",
+    "answer questions or look things up across their own records",
+    "classify, route, tag, or triage incoming items",
+    "check work for errors, omissions, or compliance issues",
+    "analyze photos, scans, or images (inspect, measure, compare)",
+    "flag, predict, or detect risks (anomalies, delays, churn, safety)",
+    "schedule, coordinate, or sequence work and appointments",
+    "guide someone through a complex procedure step by step",
+    "translate or reformat content for a different audience",
 ]
 
 ANALYST_SYSTEM = (
@@ -23,7 +29,11 @@ ANALYST_SYSTEM = (
     "Find the places where AI could genuinely remove manual effort or friction.\n\n"
     "Judge each step ONLY against what AI is actually good at:\n"
     + "\n".join(f"- {c}" for c in CAPABILITIES)
-    + "\n\nFor each, also rate SEVERITY — how big a pain this is TO THE OWNER, judged by how "
+    + "\n\nDifferent kinds of work lean on different capabilities — a business built on phone "
+    "calls benefits from transcription, one handling photos or site visits from image analysis, "
+    "one juggling appointments from scheduling, one reviewing documents from checking for errors. "
+    "Match THEIR real work to the best-fitting capability; don't default to data-entry.\n\n"
+    "For each, also rate SEVERITY — how big a pain this is TO THE OWNER, judged by how "
     "much they emphasized it, how often it comes up, and how much time/worry it causes: "
     "'high' (a top pain they clearly feel), 'medium', or 'low' (minor).\n\n"
     "Return JSON {\"opportunities\": [ {\"step_label\": \"<an EXACT step label from "
