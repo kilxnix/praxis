@@ -4,6 +4,7 @@ condition (intake-completeness)."""
 from praxis.models import WorkflowModel, NodeType
 from praxis.coverage import analyze_coverage
 from praxis.discovery import extract_deltas, apply_deltas, next_question
+from praxis.consolidate import consolidate_steps
 
 OPENING = ("Thanks for making the time. In your own words, walk me through what you "
            "actually do day to day — start wherever the work starts.")
@@ -33,6 +34,8 @@ class DiscoverySession:
         self.history.append({"role": "user", "content": client_message})
         deltas = await extract_deltas(self.client, self.history, client_message, self.turn)
         apply_deltas(self.model, deltas, self.turn)
+        if self.turn % 3 == 0:
+            await consolidate_steps(self.client, self.model)
         if self.is_intake_complete():
             self.history.append({"role": "assistant", "content": CLOSING})
             return CLOSING

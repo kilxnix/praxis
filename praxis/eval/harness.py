@@ -16,8 +16,10 @@ class RunResult:
     seconds: float = 0.0
 
 
-async def run_scenario(interviewer_client, client_sim_client, scenario, clock, max_turns=25):
-    session = DiscoverySession(interviewer_client, max_turns=max_turns)
+async def run_scenario(interviewer_client, client_sim_client, scenario, clock, max_turns=25,
+                       coverage_target=0.8):
+    session = DiscoverySession(interviewer_client, max_turns=max_turns,
+                               coverage_target=coverage_target)
     start = clock()
     interviewer_line = session.opening_line()
     sim_history = []
