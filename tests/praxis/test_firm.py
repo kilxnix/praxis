@@ -68,3 +68,31 @@ async def test_run_firm_produces_deliverable():
     assert d["workflow_mirror"] == ["copy leads"]
     assert [e["step"] for e in d["where_ai_fits"]] == ["copy leads"]
     assert d["rollout"] == ["copy leads"]
+
+
+class RetryClient:
+    """Empty on the first opportunities attempt, then real data — exercises _attempt retry."""
+    def __init__(self):
+        self.script = [
+            {},  # first find_opportunities attempt: empty -> retry
+            {"opportunities": [{"step_label": "copy leads",
+                                "capability": "automate manual data transfer between tools",
+                                "description": "auto-import", "evidence": "I copy by hand"}]},
+            {"interventions": [{"step_label": "copy leads", "what_it_does": "auto-import",
+                                "where_it_plugs_in": "sheet", "inputs_needed": "inbox",
+                                "changes_for_people": "no typing"}]},
+            {"assessments": [{"step_label": "copy leads", "effort": "low", "time_saved": "high",
+                              "risk": "low", "disruption": "low", "priority": "quick win",
+                              "rationale": "obvious"}]},
+            {"verdicts": [{"step_label": "copy leads", "verdict": "solid", "objection": ""}]},
+        ]
+    async def complete_json(self, system, user, **kw):
+        return self.script.pop(0) if self.script else {}
+
+
+@pytest.mark.asyncio
+async def test_run_firm_retries_empty_stage():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy by hand", 1)])
+    d = await run_firm(RetryClient(), m)
+    assert [e["step"] for e in d["where_ai_fits"]] == ["copy leads"]   # recovered after retry

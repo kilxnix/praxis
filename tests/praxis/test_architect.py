@@ -44,3 +44,14 @@ async def test_design_interventions_keeps_anchored_drops_ungrounded():
 async def test_design_interventions_empty_opportunities():
     ivs = await design_interventions(FakeClient({"interventions": []}), _map(), [])
     assert ivs == []
+
+
+@pytest.mark.asyncio
+async def test_design_interventions_dedups_by_step():
+    payload = {"interventions": [
+        {"step_label": "copy leads to spreadsheet", "what_it_does": "first idea"},
+        {"step_label": "copy leads to spreadsheet", "what_it_does": "second idea"},
+    ]}
+    ivs = await design_interventions(FakeClient(payload), _map(), _opps())
+    assert len(ivs) == 1                       # one intervention per step
+    assert ivs[0].what_it_does == "first idea"

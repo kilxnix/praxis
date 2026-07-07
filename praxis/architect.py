@@ -46,12 +46,15 @@ async def design_interventions(client, model, opportunities):
             + "\n\nOPPORTUNITIES:\n" + _serialize_opps(opportunities))
     result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
     out = []
+    seen = set()
     for iv in (result.get("interventions", []) if isinstance(result, dict) else []):
         if not isinstance(iv, dict):
             continue
         label = iv.get("step_label")
         what = (iv.get("what_it_does") or "").strip()
-        if label in opp_steps and what:   # anchor to a real opportunity + must say what it does
+        # anchor to a real opportunity, must say what it does, one intervention per step
+        if label in opp_steps and what and label not in seen:
+            seen.add(label)
             out.append(Intervention(
                 label, what,
                 (iv.get("where_it_plugs_in") or "").strip(),
