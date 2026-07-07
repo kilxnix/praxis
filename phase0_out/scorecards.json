@@ -1,0 +1,78 @@
+[
+  {
+    "scenario_key": "vague_baker",
+    "auto": {
+      "connected": false,
+      "grounded": true,
+      "grain_ok": false,
+      "coverage": 0.0,
+      "orphans": 6,
+      "evidenceless": 0,
+      "grain_outliers": 9,
+      "seconds": 192.06299999996554,
+      "turns": 25
+    },
+    "human": {
+      "adapted_to_them": null,
+      "honest_about_gaps": null,
+      "would_help": null
+    }
+  },
+  {
+    "scenario_key": "rambling_agency",
+    "auto": {
+      "connected": false,
+      "grounded": true,
+      "grain_ok": false,
+      "coverage": 0.0,
+      "orphans": 1,
+      "evidenceless": 0,
+      "grain_outliers": 4,
+      "seconds": 190.82800000003772,
+      "turns": 25
+    },
+    "human": {
+      "adapted_to_them": null,
+      "honest_about_gaps": null,
+      "would_help": null
+    }
+  },
+  {
+    "scenario_key": "jargon_manufacturer",
+    "auto": {
+      "connected": false,
+      "grounded": true,
+      "grain_ok": false,
+      "coverage": 0.0,
+      "orphans": 3,
+      "evidenceless": 0,
+      "grain_outliers": 8,
+      "seconds": 159.0,
+      "turns": 25
+    },
+    "human": {
+      "adapted_to_them": null,
+      "honest_about_gaps": null,
+      "would_help": null
+    }
+  },
+  {
+    "scenario_key": "defensive_founder",
+    "auto": {
+      "connected": false,
+      "grounded": true,
+      "grain_ok": false,
+      "coverage": 0.0,
+      "orphans": 6,
+      "evidenceless": 0,
+      "grain_outliers": 5,
+      "seconds": 164.64100000000326,
+      "turns": 25
+    },
+    "human": {
+      "adapted_to_them": null,
+      "honest_about_gaps": null,
+      "would_help": null
+    }
+  }
+]
