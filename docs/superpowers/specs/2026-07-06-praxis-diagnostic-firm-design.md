@@ -333,14 +333,16 @@ so they are planned around, not discovered late:
 - **Ongoing human upkeep.** Prompt/persona iteration (SP1) and Tool Catalog maintenance
   (SP2) are standing human responsibilities, not one-time setup.
 
-### One open design decision surfaced by review: who does Discovery interview?
+### Design decision (resolved by review): Discovery interviews the client directly
 
-The spec does not yet pin down whether Praxis interviews the **end client directly** or an
-**operator acting as proxy**. This changes Discovery's voice and, more importantly, evidence
-fidelity (first-hand quotes vs. an operator's paraphrase). **Recommended default: interview
-the client directly** — it maximizes autonomy (true to "run on its own") and keeps evidence
-first-hand, with the operator setting up the engagement and doing the final human read. To be
-confirmed with the founder before the Discovery prototype, since it shapes that prototype.
+**Decided: Praxis interviews the end client directly**, not an operator proxy. The evidence
+graph is built from the client's own first-hand words (maximizing evidence fidelity and the
+Ocean Principle's "in their own language"); the operator sets up the engagement and does the
+final human read of the deliverable. This is also the more autonomous option, true to "run on
+its own." Consequence for the build: the **Discovery prototype targets a real client-facing
+interview** — its voice is the personable-operator-in-the-room persona talking to a business
+owner/worker who is *not* a Praxis expert, and who may give thin or jargon-heavy answers
+(hence the §4 coverage-probe and thin-area safeguards).
 
 ---
 
