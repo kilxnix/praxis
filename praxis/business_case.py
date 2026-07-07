@@ -48,6 +48,18 @@ def _lvl(v):
     return v if v in LEVELS else "medium"
 
 
+def derive_priority(effort, time_saved, risk):
+    """Priority is DERIVED from the scores so it can never contradict the effort/reward math
+    (e.g. high effort for medium reward can't be sold as a casual 'quick win' or 'worth it')."""
+    if time_saved == "low" and effort != "low":
+        return "skip"          # costs real effort, saves little
+    if effort == "high":
+        return "big bet"       # high effort is always a bet, never a quick win
+    if effort == "low" and time_saved == "high" and risk != "high":
+        return "quick win"
+    return "worth it"
+
+
 async def score_interventions(client, interventions):
     if not interventions:
         return []
@@ -62,11 +74,10 @@ async def score_interventions(client, interventions):
         label = a.get("step_label")
         if label not in iv_steps:
             continue
-        priority = (a.get("priority") or "").strip().lower()
+        effort, saved, risk = _lvl(a.get("effort")), _lvl(a.get("time_saved")), _lvl(a.get("risk"))
         out.append(Assessment(
-            label, _lvl(a.get("effort")), _lvl(a.get("time_saved")),
-            _lvl(a.get("risk")), _lvl(a.get("disruption")),
-            priority if priority in PRIORITIES else "worth it",
+            label, effort, saved, risk, _lvl(a.get("disruption")),
+            derive_priority(effort, saved, risk),   # deterministic, consistent with the scores
             (a.get("rationale") or "").strip(),
         ))
     return out

@@ -90,11 +90,14 @@ REGISTRY = [
          matches=lambda st: len(_steps(st)) >= 1 and _sequence_count(st) < len(_steps(st)) - 1,
          focus=lambda st: ("Ask what happens immediately after the most recently "
                            "described step.")),
-    Play("surface_friction", "question", 50,
+    # Below trace_sequence (40) on purpose: map the WHOLE workflow first, then probe pain,
+    # so the interview doesn't fixate on one vivid friction and lose breadth. Synthesis mines
+    # pain from the full transcript regardless.
+    Play("surface_friction", "question", 30,
          matches=lambda st: _satisfied_step_without_friction(st) is not None,
          focus=lambda st: (f"For the step '{_satisfied_step_without_friction(st).label}', ask "
-                           "what's most annoying, slow, or error-prone about it — where things "
-                           "slip through the cracks or eat their time.")),
+                           "one quick question about what's most annoying or error-prone there, "
+                           "then move on — don't dwell.")),
     Play("fallback", "question", 0,
          matches=lambda st: True,
          focus=lambda st: ("Ask what happens next in the process, or which part of this "

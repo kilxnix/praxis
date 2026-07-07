@@ -42,3 +42,12 @@ def test_prioritized_orders_quick_wins_first():
 @pytest.mark.asyncio
 async def test_score_empty():
     assert await score_interventions(FakeClient({"assessments": []}), []) == []
+
+
+def test_derive_priority_is_consistent_with_scores():
+    from praxis.business_case import derive_priority
+    assert derive_priority("high", "medium", "low") == "big bet"   # high effort is never a quick win
+    assert derive_priority("low", "high", "low") == "quick win"
+    assert derive_priority("medium", "low", "low") == "skip"       # costs effort, saves little
+    assert derive_priority("high", "high", "low") == "big bet"
+    assert derive_priority("medium", "medium", "medium") == "worth it"
