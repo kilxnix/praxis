@@ -1,7 +1,7 @@
 """Content-free interview 'plays'. Each play is a rule about interview DYNAMICS
 (trigger -> question directive), never about business domain (Ocean Principle).
 This registry is the substrate a future learning loop will extend."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 from praxis.models import NodeType, EdgeType
 from praxis.coverage import analyze_coverage, biggest_gap

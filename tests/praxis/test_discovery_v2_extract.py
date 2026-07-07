@@ -28,3 +28,26 @@ async def test_canonical_dedup_merges_surface_variants():
     ]
     apply_deltas(m, deltas, turn=1)
     assert len(m.nodes_of(NodeType.TOOL)) == 1   # all collapse to one canonical node
+
+@pytest.mark.asyncio
+async def test_fragment_step_not_recreated_via_edge_endpoint():
+    m = WorkflowModel()
+    deltas = [
+        {"op": "add_edge", "edge_type": "performs",
+         "source_label": "me", "source_type": "actor",
+         "target_label": "hoping someone actually ordered scones", "target_type": "step",
+         "quote": "hoping someone ordered"},
+    ]
+    apply_deltas(m, deltas, turn=1)
+    assert len(m.nodes_of(NodeType.STEP)) == 0  # fragment step must NOT enter via the edge path
+
+@pytest.mark.asyncio
+async def test_valid_step_endpoint_still_created_via_edge():
+    m = WorkflowModel()
+    deltas = [
+        {"op": "add_edge", "edge_type": "uses",
+         "source_label": "take order", "source_type": "step",
+         "target_label": "notebook", "target_type": "tool", "quote": "in my notebook"},
+    ]
+    apply_deltas(m, deltas, turn=1)
+    assert len(m.nodes_of(NodeType.STEP)) == 1  # valid short step endpoint IS created

@@ -42,6 +42,8 @@ def _get_or_add(model, label, ntype, ev):
             n.evidence.append(ev)
             n.confidence.evidence_count += 1
             return n
+    if ntype == NodeType.STEP and not is_valid_step_label(label):
+        return None
     return model.add_node(ntype, label, [ev])
 
 
@@ -66,6 +68,8 @@ def apply_deltas(model, deltas, turn):
             ev = Evidence(q.strip(), turn)
             src = _get_or_add(model, d["source_label"], NodeType(d["source_type"]), ev)
             tgt = _get_or_add(model, d["target_label"], NodeType(d["target_type"]), ev)
+            if src is None or tgt is None:
+                continue
             model.add_edge(EdgeType(d["edge_type"]), src.id, tgt.id, [ev])
         except (KeyError, ValueError):
             continue
