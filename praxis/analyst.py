@@ -28,10 +28,15 @@ ANALYST_SYSTEM = (
     "\"description\": \"<specific to THIS business, in their terms>\", \"evidence\": \"<the "
     "exact phrase from the map that shows the manual effort or friction>\"} ] }.\n\n"
     "Rules:\n"
-    "- Every opportunity MUST reference an exact step_label from the map and cite evidence "
-    "from it. No opportunity without a real manual/friction signal.\n"
-    "- Be specific to THIS business, not generic advice.\n"
-    "- Do NOT design the solution or estimate ROI — only identify WHERE AI fits and WHY."
+    "- Only mark an opportunity where the owner described a CLEAR, real, repeated pain or "
+    "manual grind. Do NOT reach for AI just because a step COULD be automated — if the pain is "
+    "mild, one-off, or you are assuming it, leave it out.\n"
+    "- Every opportunity MUST reference an exact step_label and quote the evidence that shows "
+    "the pain. No quote, no opportunity.\n"
+    "- Be selective: a few strongly-evidenced opportunities beat a long list. Prefer the 2-4 "
+    "clearest pains over covering everything.\n"
+    "- Be specific to THIS business, not generic advice. Do NOT design the solution or estimate "
+    "ROI — only identify WHERE AI fits and WHY."
 )
 
 

@@ -33,7 +33,16 @@ def to_markdown(deliverable, title="AI Implementation Plan"):
         out.append(f"*effort {e['effort']} · saves {e['time_saved']} time · risk {e['risk']}*")
         out.append("")
 
-    out += ["## Suggested order", ""]
+    later = d.get("bigger_or_later", [])
+    if later:
+        out += ["## Bigger bets (once the quick wins land)", ""]
+        for e in later:
+            headline = e.get("outcome") or e["what_it_does"]
+            out.append(f"- **{headline}** *(effort {e['effort']} · saves {e['time_saved']} "
+                       f"time · risk {e['risk']})*")
+        out.append("")
+
+    out += ["## Suggested order (start here)", ""]
     roll = d.get("rollout", [])
     for i, s in enumerate(roll, 1):
         match = next((e for e in fits if e["step"] == s), None)

@@ -10,6 +10,8 @@ import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
 
+START_HERE_CAP = 3   # a focused plan leads with a few high-impact items, not a list of ideas
+
 SYNTHESIS_SYSTEM = (
     "You are the lead consultant writing the summary a NON-TECHNICAL small-business owner "
     "will read. You are given the interview transcript (their own words) and the recommended "
@@ -74,12 +76,20 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
         })
 
     recommended.sort(key=lambda e: _PRIORITY_ORDER.get(e["priority"], 1))  # quick wins first
+    # Ruthless selection: a sharp "start here" of the best quick wins / worth-its (cap 3);
+    # big bets and any overflow are demoted to a clearly-secondary "later" list so the plan
+    # leads with the highest-impact, lowest-effort work instead of a scattered list of ideas.
+    primary = [e for e in recommended if e["priority"] in ("quick win", "worth it")]
+    big = [e for e in recommended if e["priority"] == "big bet"]
+    start_here = primary[:START_HERE_CAP]
+    later = primary[START_HERE_CAP:] + big
 
     return {
         "workflow_mirror": workflow_mirror,
         "where_it_hurts": where_it_hurts,
-        "where_ai_fits": recommended,
-        "rollout": [e["step"] for e in recommended],
+        "where_ai_fits": start_here,
+        "bigger_or_later": later,
+        "rollout": [e["step"] for e in start_here],
         "not_recommending": not_recommending,
     }
 

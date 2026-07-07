@@ -142,3 +142,21 @@ async def test_run_firm_bounces_rejected_to_architect():
     fits = state.deliverable["where_ai_fits"]
     assert [e["step"] for e in fits] == ["copy leads"]  # the redesign shipped
     assert "review" in fits[0]["what_it_does"]          # it's the v2, safer design
+
+
+def test_assemble_caps_start_here_and_demotes_big_bets():
+    m = WorkflowModel()
+    for lbl in ("a", "b", "c", "d", "e"):
+        m.add_node(NodeType.STEP, lbl, _ev())
+    ivs = [Intervention(l, "do", "w", "n", "c") for l in ("a", "b", "c", "d", "e")]
+    scores = [Assessment("a", "low", "high", "low", "low", "quick win", ""),
+              Assessment("b", "low", "high", "low", "low", "quick win", ""),
+              Assessment("c", "medium", "high", "low", "low", "worth it", ""),
+              Assessment("d", "medium", "high", "low", "low", "worth it", ""),   # overflow
+              Assessment("e", "high", "medium", "low", "low", "big bet", "")]      # big bet
+    verdicts = [Verdict(l, "solid", "") for l in ("a", "b", "c", "d", "e")]
+    dv = assemble_deliverable(m, [], ivs, scores, verdicts)
+    assert len(dv["where_ai_fits"]) == 3                              # capped at START_HERE_CAP
+    assert {e["step"] for e in dv["where_ai_fits"]} == {"a", "b", "c"}
+    later = {e["step"] for e in dv["bigger_or_later"]}
+    assert "e" in later and "d" in later                             # big bet + overflow demoted
