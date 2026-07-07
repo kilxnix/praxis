@@ -59,3 +59,22 @@ async def test_apply_deltas_skips_unresolvable_edge_without_crashing():
                "target_label": "x", "target_type": "step", "quote": "q"}]
     apply_deltas(m, deltas, turn=1)  # must not raise
     assert len(m.edges) == 0
+
+@pytest.mark.asyncio
+async def test_apply_deltas_skips_edge_missing_quote_without_crashing():
+    from praxis.models import WorkflowModel
+    m = WorkflowModel()
+    deltas = [{"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "actor",
+               "target_label": "x", "target_type": "step"}]  # no quote key
+    apply_deltas(m, deltas, turn=1)  # must not raise
+    assert len(m.edges) == 0
+
+@pytest.mark.asyncio
+async def test_extract_tolerates_non_dict_and_unhashable_fields():
+    payload = {"deltas": [
+        "not a dict",
+        {"op": "add_node", "node_type": ["step"], "label": "x", "quote": "q"},
+        {"op": "add_node", "node_type": "step", "label": "ok", "quote": "we do ok"},
+    ]}
+    deltas = await extract_deltas(FakeClient(payload), [], "msg", turn=1)
+    assert [d["label"] for d in deltas] == ["ok"]

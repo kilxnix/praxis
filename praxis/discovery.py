@@ -12,16 +12,22 @@ async def extract_deltas(client, history, latest_msg, turn):
                                         P.build_extraction_user(history, latest_msg))
     out = []
     for d in result.get("deltas", []):
+        if not isinstance(d, dict):
+            continue
         q = d.get("quote")
         quote = q.strip() if isinstance(q, str) else ""
         if not quote:
-            continue  # evidence-required: drop
-        if d.get("op") == "add_node" and d.get("node_type") in _VALID_NODE and d.get("label"):
-            out.append(d)
-        elif d.get("op") == "add_edge" and d.get("edge_type") in _VALID_EDGE \
-                and d.get("source_label") and d.get("target_label") \
-                and d.get("source_type") in _VALID_NODE and d.get("target_type") in _VALID_NODE:
-            out.append(d)
+            continue
+        op = d.get("op")
+        try:
+            if op == "add_node" and d.get("node_type") in _VALID_NODE and d.get("label"):
+                out.append(d)
+            elif op == "add_edge" and d.get("edge_type") in _VALID_EDGE \
+                    and d.get("source_label") and d.get("target_label") \
+                    and d.get("source_type") in _VALID_NODE and d.get("target_type") in _VALID_NODE:
+                out.append(d)
+        except TypeError:
+            continue
     return out
 
 
@@ -36,14 +42,23 @@ def _get_or_add(model, label, ntype, ev):
 
 def apply_deltas(model, deltas, turn):
     for d in deltas:
-        ev = Evidence(d["quote"].strip(), turn)
-        if d["op"] == "add_node":
-            _get_or_add(model, d["label"], NodeType(d["node_type"]), ev)
-    for d in deltas:  # edges after nodes so endpoints resolve
-        if d["op"] != "add_edge":
+        if d.get("op") != "add_node":
+            continue
+        q = d.get("quote")
+        if not isinstance(q, str) or not q.strip():
             continue
         try:
-            ev = Evidence(d["quote"].strip(), turn)
+            _get_or_add(model, d["label"], NodeType(d["node_type"]), Evidence(q.strip(), turn))
+        except (KeyError, ValueError):
+            continue
+    for d in deltas:  # edges after nodes so endpoints resolve
+        if d.get("op") != "add_edge":
+            continue
+        q = d.get("quote")
+        if not isinstance(q, str) or not q.strip():
+            continue
+        try:
+            ev = Evidence(q.strip(), turn)
             src = _get_or_add(model, d["source_label"], NodeType(d["source_type"]), ev)
             tgt = _get_or_add(model, d["target_label"], NodeType(d["target_type"]), ev)
             model.add_edge(EdgeType(d["edge_type"]), src.id, tgt.id, [ev])
