@@ -1,48 +1,53 @@
-"""Render a deliverable dict as a clean Markdown document — what the client actually reads."""
+"""Render a deliverable dict as a clean Markdown document — what the client reads. Leads
+with the human summary and plain-language pains; each recommendation leads with the OUTCOME
+for the owner, with the technical 'how' kept secondary."""
 
 
 def to_markdown(deliverable, title="AI Implementation Plan"):
     d = deliverable
     out = [f"# {title}", ""]
 
-    out += ["## 1. Your workflow, as we heard it", ""]
-    for s in d.get("workflow_mirror", []):
-        out.append(f"- {s}")
-    if not d.get("workflow_mirror"):
-        out.append("_(no steps mapped)_")
+    if d.get("summary"):
+        out += [d["summary"], ""]
 
-    out += ["", "## 2. Where it hurts", ""]
-    hurts = d.get("where_it_hurts", [])
-    if hurts:
-        for h in hurts:
-            out.append(f"- **{h['step']}** — {', '.join(h['friction'])}")
+    out += ["## What's costing you time today", ""]
+    pains = d.get("pains")
+    if pains:
+        for p in pains:
+            out.append(f"- {p}")
     else:
-        out.append("_No specific friction surfaced during discovery._")
+        hurts = d.get("where_it_hurts", [])
+        if hurts:
+            for h in hurts:
+                out.append(f"- **{h['step']}** — {', '.join(h['friction'])}")
+        else:
+            out.append("_No specific friction surfaced during discovery._")
 
-    out += ["", "## 3. Where AI fits", ""]
+    out += ["", "## Where AI can help (start here)", ""]
     fits = d.get("where_ai_fits", [])
     if not fits:
         out.append("_No interventions cleared review._")
     for e in fits:
-        out.append(f"### {e['priority'].title()} — {e['step']}")
-        out.append(f"- **What it does:** {e['what_it_does']}")
-        out.append(f"- **Where it plugs in:** {e['where_it_plugs_in']}")
-        out.append(f"- **Inputs needed:** {e['inputs_needed']}")
-        out.append(f"- **What changes for people:** {e['changes_for_people']}")
-        out.append(f"- **Effort:** {e['effort']} · **Time saved:** {e['time_saved']} · "
-                   f"**Risk:** {e['risk']}")
+        headline = e.get("outcome") or e["what_it_does"]
+        out.append(f"### {e['priority'].title()} — {headline}")
+        out.append(f"*Step: {e['step']} · effort {e['effort']} · saves {e['time_saved']} · "
+                   f"risk {e['risk']}*")
+        out.append("")
+        out.append(f"How it would work: {e['what_it_does']}")
         if e.get("caveat"):
-            out.append(f"- **Caveat (from the Skeptic):** {e['caveat']}")
+            out.append(f"- Note from our review: {e['caveat']}")
         out.append("")
 
-    out += ["## 4. Rollout order", ""]
+    out += ["## Suggested order", ""]
     roll = d.get("rollout", [])
     for i, s in enumerate(roll, 1):
-        out.append(f"{i}. {s}")
+        match = next((e for e in fits if e["step"] == s), None)
+        label = (match.get("outcome") if match and match.get("outcome") else s)
+        out.append(f"{i}. {label}")
     if not roll:
         out.append("_—_")
 
-    out += ["", "## 5. What we're not recommending (and why)", ""]
+    out += ["", "## What we're not recommending (and why)", ""]
     nots = d.get("not_recommending", [])
     if nots:
         for n in nots:

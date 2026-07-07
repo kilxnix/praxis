@@ -90,10 +90,11 @@ REGISTRY = [
          matches=lambda st: len(_steps(st)) >= 1 and _sequence_count(st) < len(_steps(st)) - 1,
          focus=lambda st: ("Ask what happens immediately after the most recently "
                            "described step.")),
-    Play("surface_friction", "question", 20,
+    Play("surface_friction", "question", 50,
          matches=lambda st: _satisfied_step_without_friction(st) is not None,
-         focus=lambda st: (f"For the step '{_satisfied_step_without_friction(st).label}', "
-                           "ask what usually goes wrong or slows them down there.")),
+         focus=lambda st: (f"For the step '{_satisfied_step_without_friction(st).label}', ask "
+                           "what's most annoying, slow, or error-prone about it — where things "
+                           "slip through the cracks or eat their time.")),
     Play("fallback", "question", 0,
          matches=lambda st: True,
          focus=lambda st: ("Ask what happens next in the process, or which part of this "

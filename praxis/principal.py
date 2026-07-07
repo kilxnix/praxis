@@ -1,9 +1,32 @@
-"""The Principal: assembles the finished deliverable from everything the firm produced.
-Deterministic assembly (no LLM — reliable) into the five sections from the SP1 spec:
-the workflow mirrored back, where it hurts, where AI fits (prioritized, rejects removed),
-the rollout, and what we're NOT recommending (with the Skeptic's objections)."""
+"""The Principal: assembles the deliverable AND speaks it in a human voice.
+Two parts:
+- assemble_deliverable: deterministic structure (workflow mirror, where AI fits [prioritized,
+  rejects removed], rollout, what we're NOT recommending) — reliable, no LLM.
+- synthesize: an LLM pass that turns the technical map+interventions into what a NON-TECHNICAL
+  owner actually cares about — plain-language pains, a warm summary, and outcome-framed
+  recommendations. This is where the firm stops sounding like an architect and starts sounding
+  like a consultant."""
+import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
+
+SYNTHESIS_SYSTEM = (
+    "You are the lead consultant writing the summary a NON-TECHNICAL small-business owner "
+    "will read. You are given the interview transcript (their own words) and the recommended "
+    "steps written in technical language. Translate it into what they actually care about.\n\n"
+    "Produce:\n"
+    "1. pains: 3-6 plain-language pain points they FEEL day to day, drawn from what they said "
+    "(e.g. 'constantly copying lead details by hand', 'jumping between six tools', 'tracking in "
+    "your head which proposals are done', 'leads slipping through the cracks'). Short phrases "
+    "in their world.\n"
+    "2. summary: 2-3 warm, plain sentences — what's eating their time and what would change.\n"
+    "3. outcomes: for each recommended step, ONE plain-language outcome ('You stop manually "
+    "copying every lead into the sheet'), NOT how it's built.\n\n"
+    "STRICT: no jargon. Never say API, integration, IMAP, webhook, Zapier, sync, parse, or "
+    "trigger. Talk about their day, their time, their leads.\n"
+    "Return JSON {\"summary\": \"..\", \"pains\": [\"..\"], \"outcomes\": [{\"step\": \"<exact "
+    "step>\", \"outcome\": \"..\"}]}."
+)
 
 
 def _step_friction(model, step_id):
@@ -56,3 +79,33 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
         "rollout": [e["step"] for e in recommended],
         "not_recommending": not_recommending,
     }
+
+
+def _client_turns(transcript):
+    return "\n".join(t.get("content", "") for t in transcript if t.get("role") == "user")
+
+
+async def synthesize(client, transcript, deliverable):
+    """Enrich the deliverable with owner-facing pains, a human summary, and per-step
+    outcomes. Reliability: on any failure the deliverable is returned unchanged."""
+    recs = deliverable.get("where_ai_fits", [])
+    if not transcript and not recs:
+        return deliverable
+    rec_lines = "\n".join(f"- step '{e['step']}': {e['what_it_does']}" for e in recs)
+    user = ("WHAT THE OWNER SAID:\n" + _client_turns(transcript)[:4000]
+            + "\n\nRECOMMENDED STEPS (technical wording to translate):\n" + rec_lines)
+    result = await client.complete_json(SYNTHESIS_SYSTEM, user, max_tokens=1536)
+    if not isinstance(result, dict):
+        return deliverable
+    summary = (result.get("summary") or "").strip()
+    if summary:
+        deliverable["summary"] = summary
+    pains = [p.strip() for p in result.get("pains", []) if isinstance(p, str) and p.strip()]
+    if pains:
+        deliverable["pains"] = pains
+    outcome_by = {o.get("step"): (o.get("outcome") or "").strip()
+                  for o in result.get("outcomes", []) if isinstance(o, dict)}
+    for e in recs:
+        if outcome_by.get(e["step"]):
+            e["outcome"] = outcome_by[e["step"]]
+    return deliverable

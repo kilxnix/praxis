@@ -7,16 +7,21 @@ import os
 from praxis.models import WorkflowModel
 from praxis.eval.harness import run_scenario
 from praxis.firm import run_firm
+from praxis.principal import synthesize
 from praxis.render import to_markdown
 
 
 async def run_pipeline(interviewer_client, sim_client, scenario, clock, max_turns=25):
-    """Interview -> workflow map -> firm -> deliverable. Returns the EngagementState."""
+    """Interview -> workflow map -> firm -> synthesized deliverable. Returns EngagementState."""
     run = await run_scenario(interviewer_client, sim_client, scenario, clock,
                              max_turns=max_turns, coverage_target=1.0)
     model = WorkflowModel.from_dict(run.model_dict)
     state = await run_firm(interviewer_client, model)
     state.transcript = run.transcript
+    state.deliverable = await synthesize(interviewer_client, state.transcript, state.deliverable)
+    state.record("principal", "synthesized",
+                 "translated the plan into owner-facing pains, a summary, and outcomes",
+                 consumed_from="discovery+all")
     return state
 
 
