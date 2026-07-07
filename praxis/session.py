@@ -16,7 +16,7 @@ class DiscoverySession:
         self.max_turns = max_turns
         self.coverage_target = coverage_target
         self.model = WorkflowModel()
-        self.history = []
+        self.history = [{"role": "assistant", "content": OPENING}]
         self.turn = 0
 
     def opening_line(self):

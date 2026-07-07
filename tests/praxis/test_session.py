@@ -1,5 +1,5 @@
 import pytest
-from praxis.session import DiscoverySession, CLOSING
+from praxis.session import DiscoverySession, CLOSING, OPENING
 from praxis.models import NodeType, EdgeType, Evidence
 
 class ScriptedClient:
@@ -73,3 +73,11 @@ def test_intake_incomplete_when_coverage_below_target():
     s.model.add_node(NodeType.STEP, "a", [Evidence("q", 1)])
     s.model.add_node(NodeType.STEP, "b", [Evidence("q", 1)])
     assert s.is_intake_complete() is False
+
+
+@pytest.mark.asyncio
+async def test_transcript_starts_with_opening_line():
+    s = DiscoverySession(ScriptedClient([]), max_turns=2)
+    assert s.history[0] == {"role": "assistant", "content": OPENING}
+    await s.submit("we take orders")
+    assert s.history[0]["content"] == OPENING   # opener preserved at the front
