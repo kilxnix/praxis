@@ -2,8 +2,8 @@
 apply them to the WorkflowModel, and ask the next gap-driven question."""
 from praxis.models import WorkflowModel, NodeType, EdgeType, Evidence
 from praxis import discovery_prompts as P
-from praxis.coverage import analyze_coverage, biggest_gap
 from praxis.discovery_signals import canonical_label, is_valid_step_label
+from praxis.plays import InterviewState, select_play
 
 _VALID_NODE = {t.value for t in NodeType}
 _VALID_EDGE = {t.value for t in EdgeType}
@@ -71,26 +71,16 @@ def apply_deltas(model, deltas, turn):
             continue
 
 
-_FACET_Q = {
-    "actor": "who does it", "tool": "what tool they use",
-    "input": "what they start with", "output": "what it produces",
-    "friction": "what goes wrong there",
-}
-
-
-def focus_hint_for(model):
-    rep = analyze_coverage(model)
-    gap = biggest_gap(rep)
-    if gap:
-        wants = ", ".join(_FACET_Q[f] for f in gap.missing if f in _FACET_Q)
-        return f"For the step '{gap.step_label}', find out: {wants}."
-    return "Ask what happens right after the last step, or what part of this work is most painful."
-
-
 async def next_question(client, model, history):
-    hint = focus_hint_for(model)
-    system = P.INTERVIEWER_SYSTEM
+    last = ""
+    for m in reversed(history):
+        if m.get("role") == "user":
+            last = m.get("content", "")
+            break
+    state = InterviewState(model, last_answer=last)
+    hint = select_play(state).focus(state)
     user = P.build_interviewer_user(history, hint)
-    text = await client.complete(system, [{"role": "user", "content": user}],
+    text = await client.complete(P.INTERVIEWER_SYSTEM,
+                                 [{"role": "user", "content": user}],
                                  max_tokens=120, temperature=0.7)
     return text.strip()

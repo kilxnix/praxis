@@ -1,17 +1,22 @@
 import pytest
 from praxis.models import WorkflowModel, NodeType, Evidence
-from praxis.discovery import next_question, focus_hint_for
+from praxis.discovery import next_question
 
-def test_focus_hint_targets_the_biggest_gap():
+class FocusCapturingClient:
+    def __init__(self): self.last_user = None
+    async def complete(self, system, messages, **kw):
+        self.last_user = messages[-1]["content"]
+        return "So what tool do you use to take the order?"
+
+@pytest.mark.asyncio
+async def test_next_question_routes_through_a_play():
     m = WorkflowModel()
-    m.add_node(NodeType.STEP, "file it", [Evidence("then we file it", 1)])
-    hint = focus_hint_for(m)
-    assert "file it" in hint
-    assert "who" in hint.lower()
-
-def test_focus_hint_when_no_gaps_asks_sequence_or_pain():
-    hint = focus_hint_for(WorkflowModel())
-    assert "painful" in hint.lower() or "after" in hint.lower()
+    m.add_node(NodeType.STEP, "take order", [Evidence("we take orders", 1)])
+    fc = FocusCapturingClient()
+    q = await next_question(fc, m, [{"role": "user", "content": "we take orders"}])
+    # complete_step_facets fires: the directive names the step + a facet
+    assert "take order" in fc.last_user
+    assert q.endswith("?")
 
 class FakeClient:
     def __init__(self): self.last_user = None

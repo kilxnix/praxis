@@ -3,17 +3,26 @@ walked a hundred shop floors — brisk, curious, NOT therapeutic. Written fresh 
 business-workflow interviews; do not port wellness prompt text (Global Constraint)."""
 import json
 
-EXTRACTION_SYSTEM = """You extract a business's workflow into a graph, using ONLY the \
-person's own words as evidence. Never invent steps, tools, or people they did not mention.
+EXTRACTION_SYSTEM = """You map a business's workflow into a graph using ONLY the person's \
+own words as evidence. Never invent steps, tools, or people they did not mention.
 
-Return JSON: {"deltas": [ ... ]}. Each delta is one of:
-- {"op":"add_node","node_type":"step|actor|tool|artifact|friction","label":"<short, their words>","quote":"<the exact phrase that justifies it>"}
+Return JSON {"deltas":[...]}. Each delta is one of:
+- {"op":"add_node","node_type":"step|actor|tool|artifact|friction","label":"<short, their words>","quote":"<exact phrase>"}
 - {"op":"add_edge","edge_type":"sequence|performs|uses|produces|consumes|causes","source_label":"..","source_type":"..","target_label":"..","target_type":"..","quote":"<exact phrase>"}
 
-Rules:
-- Every delta MUST include a verbatim quote from the latest message. No quote -> do not emit it.
-- Labels are short and in the speaker's vocabulary (e.g. "the order sheet", not "Order Management System").
-- Only extract what THIS message adds. Do not restate the whole graph."""
+STEPS — the most important rule:
+- A step is ONE concrete action, labelled as a SHORT verb-object phrase in their words: "take order", "bake bread", "send invoice". Max 4 words.
+- Do NOT make steps out of feelings, hopes, guesses, or complaints ("hoping it sold", "before it burns", "we just wing it"). Those are frictions at most, or nothing.
+- When you add a step, in the SAME response also emit the edges the person stated for it:
+    actor performs step (performs: actor -> step),
+    step uses tool (uses: step -> tool),
+    step consumes its input (consumes: step -> artifact),
+    step produces its output (produces: step -> artifact).
+
+GENERAL:
+- Every delta MUST include a verbatim quote from the latest message. No quote -> omit it.
+- Labels are short and in the speaker's vocabulary ("the order sheet", not "Order Management System").
+- Only extract what THIS message adds; do not restate the whole graph."""
 
 
 def build_extraction_user(history, latest):
