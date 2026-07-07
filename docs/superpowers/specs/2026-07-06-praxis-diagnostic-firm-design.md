@@ -350,6 +350,19 @@ the vision is built on sand. So Discovery validation is promoted from "phase one
   approach** (e.g. mandatory operator co-piloting, or narrowing to workflows/industries the
   model handles well) — not to push forward and hope.
 
+**Run it to falsify, not to confirm — the gate only works if it can actually fail.** The
+review's closing warning is the real risk here: it is easy to run Phase 0 as a demo that
+rationalizes a pass. Guards against that:
+- **Criteria and the interview set are fixed *before* the run**, not adjusted afterward to
+  fit whatever the model produced.
+- **The failure branches are pre-committed** (operator co-pilot mode / industry-narrowing /
+  simplified roster / stop), so "it failed" already has a next move and isn't a sunk-cost
+  crisis that tempts a generous re-grade.
+- **A skeptical human — ideally not the person who wrote the prompts — scores the graphs**,
+  to blunt author bias.
+The vision is conditional on this evidence. Passing Phase 0 by lowering the bar would only
+move the failure downstream, where it is more expensive and less visible.
+
 **And empirically test whether the full firm earns its keep.** A review argued a simpler
 design (strong Discovery + one high-quality reasoning pass + human review) might reach 70–80%
 of the value at a fraction of the compute and complexity. Rather than defend the six-agent
@@ -369,10 +382,15 @@ so they are planned around, not discovered late:
   are bounded by the best *local* models available. Tiered models and heavy Skeptic
   prompting raise the floor; they cannot exceed the ceiling. This is the price of strict
   offline operation, and it is a deliberate trade (privacy + self-contained over frontier
-  quality). **It is a trade, not a lock-in:** the `ModelTier` per-agent routing already
-  supports pointing the heavy-reasoning agents (Architect, Skeptic) at a frontier model
-  with a config change, so if the offline constraint is ever relaxed for a given client,
-  quality scales without a rearchitecture. **On the competitive angle** ("clients have
+  quality). **It is a trade, not an architectural lock-in:** the `ModelTier` per-agent
+  routing already supports pointing the heavy-reasoning agents (Architect, Skeptic) at a
+  frontier model with a config change. **But that swap is not a free quality lever — it
+  breaks the privacy guarantee.** Sending a client's workflow to a cloud model reintroduces
+  the exact data-leakage the offline design exists to prevent, so the frontier path is valid
+  *only* for a client who has explicitly opted out of privacy, or via a future
+  local-redaction/preprocessing step — never a quiet default to paper over local-model
+  shallowness. For the core ICP (nothing leaves the building), the local ceiling is real and
+  permanent, not something config escapes. **On the competitive angle** ("clients have
   their own frontier model, why is ours shallower?"): offline/private is the *differentiator
   and the ICP filter* — Praxis is for clients who cannot or will not send internal workflow
   data to a cloud provider. A client who is happy piping their processes into a frontier
@@ -411,9 +429,14 @@ would be reckless. So the decision is refined with a **supervision valve**:
   (below) shows Discovery reliably produces solid graphs on real, non-expert clients. Until
   then, the graph-review checkpoint stays mandatory.
 
-This costs a little of the "fire-and-forget" purity at intake, but fire-and-forget was always
-defined as *after* intake; adding a graph-review gate at the intake boundary is consistent
-with that, and it directly answers the "weak graphs feed the whole firm" failure mode.
+**Stated plainly: this is a real reduction in the original "fire-and-forget" promise, not a
+rounding error.** Until Phase 0 earns hands-off mode, every engagement carries a human
+graph-review bottleneck at the intake boundary — the exact point the vision wanted to
+automate. That is the right risk trade (a weak graph silently feeding five agents is the
+worse outcome), and fire-and-forget still holds for the *analysis* stretch after the graph is
+approved — but the autonomy claim is genuinely narrower than "give it a workflow and walk
+away," and the roadmap should say so rather than imply the valve is free. Earning the valve
+*off* via Phase 0 is what restores the original claim.
 
 Consequence for the build: the **Discovery prototype targets a real client-facing interview**
 — its voice is the personable-operator-in-the-room persona talking to a business owner/worker
