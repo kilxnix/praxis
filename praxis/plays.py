@@ -4,7 +4,7 @@ This registry is the substrate a future learning loop will extend."""
 from dataclasses import dataclass
 from typing import Callable
 from praxis.models import NodeType, EdgeType
-from praxis.coverage import analyze_coverage
+from praxis.coverage import analyze_coverage, step_facets, is_satisfied
 from praxis.discovery_signals import is_vague
 
 _FACET_Q = {
@@ -46,19 +46,13 @@ def _nonfriction_gap(state):
     m = state.model
     best = None
     for s in _steps(state):
-        out_edges = m.edges_from(s.id)
-        in_edges = [e for e in m.edges.values() if e.target == s.id]
-        has_actor = any(e.type == EdgeType.PERFORMS for e in in_edges)
-        has_tool = any(e.type == EdgeType.USES for e in out_edges)
-        has_io = any(e.type in (EdgeType.CONSUMES, EdgeType.PRODUCES) for e in out_edges)
-        if has_actor and has_tool and has_io:
+        f = step_facets(m, s.id)
+        if is_satisfied(f):
             continue
         missing = []
-        if not has_actor:
+        if not f["actor"]:
             missing.append("actor")
-        if not has_tool:
-            missing.append("tool")
-        if not has_io:
+        if not (f["tool"] or f["input"] or f["output"]):
             missing.append("output")
         if best is None or len(missing) < len(best[1]):
             best = (s, missing)
@@ -68,13 +62,8 @@ def _nonfriction_gap(state):
 def _satisfied_step_without_friction(state):
     m = state.model
     for s in _steps(state):
-        out_edges = m.edges_from(s.id)
-        in_edges = [e for e in m.edges.values() if e.target == s.id]
-        has_actor = any(e.type == EdgeType.PERFORMS for e in in_edges)
-        has_tool = any(e.type == EdgeType.USES for e in out_edges)
-        has_io = any(e.type in (EdgeType.CONSUMES, EdgeType.PRODUCES) for e in out_edges)
-        has_friction = any(e.type == EdgeType.CAUSES for e in out_edges)
-        if has_actor and has_tool and has_io and not has_friction:
+        f = step_facets(m, s.id)
+        if is_satisfied(f) and not f["friction"]:
             return s
     return None
 
