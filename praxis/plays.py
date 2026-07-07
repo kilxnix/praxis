@@ -100,8 +100,9 @@ REGISTRY = [
                            "then move on — don't dwell.")),
     Play("fallback", "question", 0,
          matches=lambda st: True,
-         focus=lambda st: ("Ask what happens next in the process, or which part of this "
-                           "work is the most annoying or error-prone.")),
+         focus=lambda st: ("Ask about a part of their work you HAVEN'T covered yet — what "
+                           "happens before this starts, after it ends, or alongside it that "
+                           "you haven't discussed. Map the whole job, not just this slice.")),
 ]
 
 

@@ -7,8 +7,9 @@ from dataclasses import dataclass
 VERDICTS = {"solid", "weak", "reject"}
 
 SKEPTIC_SYSTEM = (
-    "You are a fair but sharp skeptic reviewing proposed AI interventions for a small "
-    "business. Give a verdict for EVERY intervention in the list.\n\n"
+    "You are a fair but sharp skeptic reviewing proposed AI CHANGES for a small business. "
+    "Each item is a change AI would MAKE to a step they do manually today — judge the CHANGE "
+    "(what the AI would do), not the current manual step. Give a verdict for EVERY item.\n\n"
     "- solid: grounded in a real task they do, genuinely helpful, fits how they work.\n"
     "- weak: a real, nameable concern (creates new work or risk, or overreaches past the task).\n"
     "- reject: would make things worse, isn't grounded, overrides a step they clearly value "
@@ -30,13 +31,12 @@ class Verdict:
 
 
 def _serialize(interventions, assessments):
-    by_step = {a.step_label: a for a in assessments}
     lines = []
     for iv in interventions:
-        a = by_step.get(iv.step_label)
-        pr = f" [{a.priority}]" if a else ""
-        lines.append(f"- step '{iv.step_label}'{pr}: {iv.what_it_does} "
-                     f"(needs {iv.inputs_needed})")
+        # Frame it as the PROPOSED CHANGE (what the AI does), so the Skeptic evaluates the
+        # change and doesn't mistake it for the current manual step.
+        lines.append(f"- On the step they now do by hand ('{iv.step_label}'), the proposed AI "
+                     f"change is: {iv.what_it_does}")
     return "\n".join(lines)
 
 

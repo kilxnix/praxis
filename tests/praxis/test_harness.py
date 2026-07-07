@@ -63,6 +63,13 @@ class CoverageCompletingStub:
              "target_label": "sheet", "target_type": "tool", "quote": "lastly C"},
             {"op": "add_edge", "edge_type": "produces", "source_label": "C", "source_type": "step",
              "target_label": "outC", "target_type": "artifact", "quote": "lastly C"},
+            {"op": "add_node", "node_type": "step", "label": "D", "quote": "then D"},
+            {"op": "add_edge", "edge_type": "performs", "source_label": "me", "source_type": "actor",
+             "target_label": "D", "target_type": "step", "quote": "then D"},
+            {"op": "add_edge", "edge_type": "uses", "source_label": "D", "source_type": "step",
+             "target_label": "sheet", "target_type": "tool", "quote": "then D"},
+            {"op": "add_edge", "edge_type": "produces", "source_label": "D", "source_type": "step",
+             "target_label": "outD", "target_type": "artifact", "quote": "then D"},
         ]}
     async def complete(self, system, messages, **kw):
         return "what next?"

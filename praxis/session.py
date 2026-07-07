@@ -13,7 +13,7 @@ CLOSING = ("That gives me a solid picture. I'll take it from here and map it out
 
 class DiscoverySession:
     def __init__(self, client, max_turns=25, coverage_target=0.8,
-                 min_steps=3, saturation_gap=4):
+                 min_steps=4, saturation_gap=6):
         self.client = client
         self.max_turns = max_turns
         self.coverage_target = coverage_target
