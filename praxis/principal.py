@@ -10,7 +10,7 @@ import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
 
-START_HERE_CAP = 3   # a focused plan leads with a few high-impact items, not a list of ideas
+START_HERE_CAP = 4   # a focused plan leads with a handful of high-impact items, not one, not ten
 
 SYNTHESIS_SYSTEM = (
     "You are the lead consultant writing the summary a NON-TECHNICAL small-business owner "
@@ -43,6 +43,7 @@ def _step_friction(model, step_id):
 def assemble_deliverable(model, opportunities, interventions, assessments, verdicts):
     verdict_by = {v.step_label: v for v in verdicts}
     score_by = {a.step_label: a for a in assessments}
+    sev_by = {o.step_label: o.severity for o in opportunities}   # how big each pain is
 
     steps = model.nodes_of(NodeType.STEP)
     workflow_mirror = [s.label for s in steps]
@@ -69,20 +70,34 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
             "where_it_plugs_in": iv.where_it_plugs_in,
             "inputs_needed": iv.inputs_needed,
             "changes_for_people": iv.changes_for_people,
+            "severity": sev_by.get(iv.step_label, "medium"),
             "priority": a.priority if a else "worth it",
             "effort": a.effort if a else "medium",
             "time_saved": a.time_saved if a else "medium",
             "risk": a.risk if a else "medium",
         })
 
-    recommended.sort(key=lambda e: _PRIORITY_ORDER.get(e["priority"], 1))  # quick wins first
-    # Ruthless selection: a sharp "start here" of the best quick wins / worth-its (cap 3);
-    # big bets and any overflow are demoted to a clearly-secondary "later" list so the plan
-    # leads with the highest-impact, lowest-effort work instead of a scattered list of ideas.
-    primary = [e for e in recommended if e["priority"] in ("quick win", "worth it")]
-    big = [e for e in recommended if e["priority"] == "big bet"]
+    # STABLE selection — the fix for the narrow<->broad oscillation. Score every vetted item by
+    # how big the pain is (weighted) + how much time it saves - effort, rank, and take the top
+    # few. A consistent target of a handful of high-impact items, driven by one deterministic
+    # rule instead of a threshold that swings each round.
+    _SEV = {"high": 3, "medium": 2, "low": 1}
+    _SAVE = {"high": 3, "medium": 2, "low": 1}
+    _EFF = {"low": 0, "medium": 1, "high": 2}
+
+    def _value(e):
+        return (_SEV.get(e["severity"], 2) * 2
+                + _SAVE.get(e["time_saved"], 2)
+                - _EFF.get(e["effort"], 1))
+
+    recommended.sort(key=_value, reverse=True)
+    primary = [e for e in recommended if e["priority"] != "big bet"]
+    # Only genuinely worthwhile big bets earn a "later" slot; low-value ones are dropped (a real
+    # 'no'), so the bigger-bets section never feels tacked on.
+    worthwhile_big = [e for e in recommended if e["priority"] == "big bet"
+                      and (e["severity"] == "high" or e["time_saved"] == "high")]
     start_here = primary[:START_HERE_CAP]
-    later = primary[START_HERE_CAP:] + big
+    later = primary[START_HERE_CAP:] + worthwhile_big
 
     return {
         "workflow_mirror": workflow_mirror,

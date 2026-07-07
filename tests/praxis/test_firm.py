@@ -144,19 +144,27 @@ async def test_run_firm_bounces_rejected_to_architect():
     assert "review" in fits[0]["what_it_does"]          # it's the v2, safer design
 
 
-def test_assemble_caps_start_here_and_demotes_big_bets():
+def test_assemble_ranks_by_severity_caps_and_filters_big_bets():
+    from praxis.analyst import Opportunity
     m = WorkflowModel()
-    for lbl in ("a", "b", "c", "d", "e"):
+    for lbl in ("a", "b", "c", "d", "e", "f", "g"):
         m.add_node(NodeType.STEP, lbl, _ev())
-    ivs = [Intervention(l, "do", "w", "n", "c") for l in ("a", "b", "c", "d", "e")]
+    opps = [Opportunity(l, "cap", "d", "ev", sev) for l, sev in
+            [("a", "high"), ("b", "high"), ("c", "medium"), ("d", "low"),
+             ("e", "low"), ("f", "high"), ("g", "low")]]
+    ivs = [Intervention(l, "do", "w", "n", "c") for l in ("a", "b", "c", "d", "e", "f", "g")]
     scores = [Assessment("a", "low", "high", "low", "low", "quick win", ""),
               Assessment("b", "low", "high", "low", "low", "quick win", ""),
-              Assessment("c", "medium", "high", "low", "low", "worth it", ""),
-              Assessment("d", "medium", "high", "low", "low", "worth it", ""),   # overflow
-              Assessment("e", "high", "medium", "low", "low", "big bet", "")]      # big bet
-    verdicts = [Verdict(l, "solid", "") for l in ("a", "b", "c", "d", "e")]
-    dv = assemble_deliverable(m, [], ivs, scores, verdicts)
-    assert len(dv["where_ai_fits"]) == 3                              # capped at START_HERE_CAP
-    assert {e["step"] for e in dv["where_ai_fits"]} == {"a", "b", "c"}
-    later = {e["step"] for e in dv["bigger_or_later"]}
-    assert "e" in later and "d" in later                             # big bet + overflow demoted
+              Assessment("c", "low", "high", "low", "low", "quick win", ""),
+              Assessment("d", "low", "high", "low", "low", "quick win", ""),
+              Assessment("e", "low", "high", "low", "low", "quick win", ""),   # 5th -> overflow
+              Assessment("f", "high", "high", "low", "low", "big bet", ""),     # worthwhile big bet
+              Assessment("g", "low", "low", "low", "low", "big bet", "")]        # low-value -> dropped
+    verdicts = [Verdict(l, "solid", "") for l in ("a", "b", "c", "d", "e", "f", "g")]
+    dv = assemble_deliverable(m, opps, ivs, scores, verdicts)
+    steps = [x["step"] for x in dv["where_ai_fits"]]
+    assert len(steps) == 4                              # stable cap, not 1 and not 7
+    assert set(steps[:2]) == {"a", "b"}                 # highest-severity pains ranked first
+    later = [x["step"] for x in dv["bigger_or_later"]]
+    assert "f" in later                                 # worthwhile big bet -> later
+    assert "g" not in later and "g" not in steps        # low-value big bet dropped (a real 'no')

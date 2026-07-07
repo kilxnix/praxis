@@ -23,18 +23,20 @@ ANALYST_SYSTEM = (
     "Find the places where AI could genuinely remove manual effort or friction.\n\n"
     "Judge each step ONLY against what AI is actually good at:\n"
     + "\n".join(f"- {c}" for c in CAPABILITIES)
-    + "\n\nReturn JSON {\"opportunities\": [ {\"step_label\": \"<an EXACT step label from "
+    + "\n\nFor each, also rate SEVERITY — how big a pain this is TO THE OWNER, judged by how "
+    "much they emphasized it, how often it comes up, and how much time/worry it causes: "
+    "'high' (a top pain they clearly feel), 'medium', or 'low' (minor).\n\n"
+    "Return JSON {\"opportunities\": [ {\"step_label\": \"<an EXACT step label from "
     "the map>\", \"capability\": \"<one capability from the list above, verbatim>\", "
     "\"description\": \"<specific to THIS business, in their terms>\", \"evidence\": \"<the "
-    "exact phrase from the map that shows the manual effort or friction>\"} ] }.\n\n"
+    "exact phrase from the map that shows the manual effort or friction>\", \"severity\": "
+    "\"high|medium|low\"} ] }.\n\n"
     "Rules:\n"
-    "- Only mark an opportunity where the owner described a CLEAR, real, repeated pain or "
-    "manual grind. Do NOT reach for AI just because a step COULD be automated — if the pain is "
-    "mild, one-off, or you are assuming it, leave it out.\n"
-    "- Every opportunity MUST reference an exact step_label and quote the evidence that shows "
-    "the pain. No quote, no opportunity.\n"
-    "- Be selective: a few strongly-evidenced opportunities beat a long list. Prefer the 2-4 "
-    "clearest pains over covering everything.\n"
+    "- Find ALL the real opportunities across the workflow — don't stop at one. But every "
+    "opportunity MUST address something the owner actually does (not an assumption) and quote "
+    "the evidence that shows the manual effort or friction. No quote, no opportunity.\n"
+    "- Rate severity honestly (see above) — later stages use it to focus on the biggest pains, "
+    "so you don't need to pre-filter; just be truthful about which pains are big vs. minor.\n"
     "- Be specific to THIS business, not generic advice. Do NOT design the solution or estimate "
     "ROI — only identify WHERE AI fits and WHY."
 )
@@ -46,6 +48,7 @@ class Opportunity:
     capability: str
     description: str
     evidence: str
+    severity: str = "medium"      # how big a pain this is to the owner: high | medium | low
 
 
 def serialize_map(model) -> str:
@@ -95,8 +98,10 @@ async def find_opportunities(client, model):
         label = o.get("step_label")
         evidence = (o.get("evidence") or "").strip()
         description = (o.get("description") or "").strip()
+        severity = (o.get("severity") or "").strip().lower()
+        severity = severity if severity in ("high", "medium", "low") else "medium"
         # Anchor rule: must point at a real step and carry evidence + a description.
         if label in step_labels and evidence and description:
             out.append(Opportunity(label, (o.get("capability") or "").strip(),
-                                    description, evidence))
+                                    description, evidence, severity))
     return out
