@@ -7,27 +7,18 @@ from dataclasses import dataclass
 VERDICTS = {"solid", "weak", "reject"}
 
 SKEPTIC_SYSTEM = (
-    "You are a hard-nosed but fair skeptic reviewing proposed AI interventions for a small "
-    "business. Judge ONLY from evidence — what the owner actually said and does. For each "
-    "intervention:\n"
-    "1. Grounded — does it address a real pain the owner mentioned, not an assumption?\n"
-    "2. Will it help — does it remove real effort without creating new problems or risk?\n"
-    "3. Respects the owner — does it override something they said they VALUE doing themselves "
-    "(e.g. personally writing proposals)? If so, that's a reject.\n"
-    "4. Right-sized — does it invent adjacent features/workflows they never asked about? If so, "
-    "flag it.\n\n"
-    "Do NOT reject something just because it isn't fully automated. A small manual trigger or "
-    "keeping a step by hand is perfectly fine if it fits how they work — automation is not a "
-    "virtue in itself. Reject on evidence, never on ideology.\n\n"
-    "Your objection MUST point to something the owner actually SAID or does in this transcript. "
-    "Do NOT object with general beliefs about small businesses ('accuracy is paramount', "
-    "'owners value control', 'manual verification is always needed') unless they said it. A "
-    "generic principle is not a valid objection — cite their words or mark it solid.\n\n"
-    "Verdict: 'solid' (grounded, helpful, respectful, right-sized), 'weak' (a genuine concern "
-    "you can't wave away), or 'reject' (fails one badly). One-line objection for weak/reject, "
-    "empty for solid. Ground the objection in what they SAID.\n\n"
+    "You are a fair but sharp skeptic reviewing proposed AI interventions for a small "
+    "business. Give a verdict for EVERY intervention in the list.\n\n"
+    "- solid: grounded in a real task they do, genuinely helpful, fits how they work.\n"
+    "- weak: a real, nameable concern (creates new work or risk, or overreaches past the task).\n"
+    "- reject: would make things worse, isn't grounded, overrides a step they clearly value "
+    "doing themselves, or invents a workflow they never mentioned.\n\n"
+    "Do NOT reject something for being manual or not fully automated — a manual step is fine if "
+    "it fits. Base each objection on the specific intervention and workflow in front of you, "
+    "not on generic beliefs about small businesses.\n\n"
     "Return JSON {\"verdicts\": [ {\"step_label\": \"<exact step>\", \"verdict\": "
-    "\"solid|weak|reject\", \"objection\": \"..\"} ] }."
+    "\"solid|weak|reject\", \"objection\": \"<one line; empty if solid>\"} ] }. Exactly one "
+    "verdict per intervention."
 )
 
 
