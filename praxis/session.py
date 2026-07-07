@@ -1,11 +1,14 @@
 """Drives one Discovery interview: client message -> grow graph -> next question,
 until coverage is high enough or the turn cap is hit. The session owns the stop
 condition (intake-completeness)."""
+import asyncio
 from praxis.models import WorkflowModel, NodeType
 from praxis.coverage import analyze_coverage
 from praxis.discovery import extract_deltas, apply_deltas, next_question
 from praxis.consolidate import consolidate_steps
 from praxis.completeness import assess_completeness
+from praxis.analyst import serialize_map
+from praxis.firm_agent import assemble_firm
 
 OPENING = ("Thanks for making the time. In your own words, walk me through what you "
            "actually do day to day — start wherever the work starts.")
@@ -14,12 +17,17 @@ CLOSING = ("That gives me a solid picture. I'll take it from here and map it out
 
 class DiscoverySession:
     def __init__(self, client, max_turns=25, coverage_target=0.8,
-                 min_steps=4, saturation_gap=6):
+                 min_steps=4, saturation_gap=6, live_firm=True, firm=None):
         self.client = client
         self.max_turns = max_turns
         self.coverage_target = coverage_target
         self.min_steps = min_steps
         self.saturation_gap = saturation_gap
+        # The firm sits in on the interview: each member watches the live discovery and builds
+        # their own growing understanding of THIS business. None until first use so a cheap
+        # run (live_firm=False) skips it entirely.
+        self.live_firm = live_firm
+        self.firm = firm if firm is not None else (assemble_firm(client) if live_firm else None)
         self.model = WorkflowModel()
         self.history = [{"role": "assistant", "content": OPENING}]
         self.turn = 0
@@ -46,6 +54,18 @@ class DiscoverySession:
             return False
         return (self.turn - self.last_new_step_turn) >= self.saturation_gap
 
+    async def _firm_observe(self, last_question, answer):
+        """Every firm member watches the latest exchange and updates what THEY understand about
+        this business. Concurrent, so it costs one round-trip of latency, not five. Returns the
+        number of new beliefs formed across the firm (for logging/visibility)."""
+        if not self.firm:
+            return 0
+        exchange = f"Interviewer: {last_question}\nOwner: {answer}"
+        map_text = serialize_map(self.model)
+        added = await asyncio.gather(*[
+            agent.observe(exchange, map_text, self.turn) for agent in self.firm.values()])
+        return sum(added)
+
     async def _close(self):
         await consolidate_steps(self.client, self.model)   # final cleanup pass
         self._closed = True
@@ -56,6 +76,7 @@ class DiscoverySession:
         if self._closed:
             return CLOSING
         self.turn += 1
+        last_question = self.history[-1]["content"] if self.history else OPENING
         self.history.append({"role": "user", "content": client_message})
         before = len(self.model.nodes_of(NodeType.STEP))
         deltas = await extract_deltas(self.client, self.history, client_message, self.turn,
@@ -65,6 +86,10 @@ class DiscoverySession:
             self.last_new_step_turn = self.turn   # a new step surfaced this turn
         if self.turn % 2 == 0:
             await consolidate_steps(self.client, self.model)
+
+        # The firm sits in: each member updates their own understanding of this business from
+        # the exchange that just happened. Their memories are what later decisions reason from.
+        await self._firm_observe(last_question, client_message)
 
         if self.turn >= self.max_turns:
             return await self._close()
