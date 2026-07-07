@@ -16,8 +16,10 @@ ARCHITECT_SYSTEM = (
     "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step from the opportunity>\", "
     "\"what_it_does\": \"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", "
     "\"changes_for_people\": \"..\"} ] }.\n"
-    "Be specific to their actual tools. Keep each intervention minimal and practical. Do NOT "
-    "estimate ROI or rank the interventions."
+    "Be specific to their actual tools. Address ONLY the one opportunity — do NOT invent "
+    "adjacent features, approval workflows, or automation the owner never mentioned. If the "
+    "owner values doing a step themselves, keep them in control (assist, don't replace it). "
+    "Keep each intervention minimal, grounded, and practical. Do NOT estimate ROI or rank them."
 )
 
 

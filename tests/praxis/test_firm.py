@@ -31,14 +31,15 @@ def test_assemble_sections_reject_removed_and_ordered():
     assert d["rollout"] == ["copy leads"]
 
 
-def test_weak_verdict_carries_caveat_forward():
+def test_weak_verdict_is_set_aside_not_recommended():
     m = WorkflowModel()
     m.add_node(NodeType.STEP, "x", _ev())
     ivs = [Intervention("x", "do", "w", "n", "c")]
     scores = [Assessment("x", "low", "high", "low", "low", "quick win", "")]
     verdicts = [Verdict("x", "weak", "watch the data")]
     d = assemble_deliverable(m, [], ivs, scores, verdicts)
-    assert d["where_ai_fits"][0]["caveat"] == "watch the data"
+    assert d["where_ai_fits"] == []                             # weak is NOT recommended
+    assert d["not_recommending"][0]["reason"] == "watch the data"
 
 
 class QueueClient:

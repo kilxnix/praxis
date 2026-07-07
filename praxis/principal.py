@@ -15,10 +15,11 @@ SYNTHESIS_SYSTEM = (
     "will read. You are given the interview transcript (their own words) and the recommended "
     "steps written in technical language. Translate it into what they actually care about.\n\n"
     "Produce:\n"
-    "1. pains: 3-6 plain-language pain points they FEEL day to day, drawn from what they said "
-    "(e.g. 'constantly copying lead details by hand', 'jumping between six tools', 'tracking in "
-    "your head which proposals are done', 'leads slipping through the cracks'). Short phrases "
-    "in their world.\n"
+    "1. pains: 3-6 plain-language pain points they FEEL day to day, drawn from what they said. "
+    "Include the DEEPER ones, not just tasks: the constant switching between many tools, the "
+    "mental load of tracking status in their head across email/spreadsheet/Trello/Slack, having "
+    "to remember to check things all day, and specific tasks like copying leads by hand. Short "
+    "phrases in their world.\n"
     "2. summary: 2-3 warm, plain sentences — what's eating their time and what would change.\n"
     "3. outcomes: for each recommended step, ONE plain-language outcome ('You stop manually "
     "copying every lead into the sheet'), NOT how it's built.\n\n"
@@ -48,14 +49,17 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
     for iv in interventions:
         v = verdict_by.get(iv.step_label)
         a = score_by.get(iv.step_label)
-        rejected = (v is not None and v.verdict == "reject") or \
-                   (a is not None and a.priority == "skip")
-        if rejected:
+        # Only SOLID interventions are recommended. A weak verdict (a real, unresolved concern)
+        # or a 'skip' is set aside with its reason — we never ship a recommendation that our
+        # own review says makes things worse.
+        set_aside = (v is not None and v.verdict in ("reject", "weak")) or \
+                    (a is not None and a.priority == "skip")
+        if set_aside:
             reason = (v.objection if (v and v.objection)
-                      else (a.rationale if a else "not worth the effort"))
+                      else (a.rationale if a else "not clearly worth it"))
             not_recommending.append({"step": iv.step_label, "reason": reason})
             continue
-        entry = {
+        recommended.append({
             "step": iv.step_label,
             "what_it_does": iv.what_it_does,
             "where_it_plugs_in": iv.where_it_plugs_in,
@@ -65,10 +69,7 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
             "effort": a.effort if a else "medium",
             "time_saved": a.time_saved if a else "medium",
             "risk": a.risk if a else "medium",
-        }
-        if v is not None and v.verdict == "weak" and v.objection:
-            entry["caveat"] = v.objection      # unresolved Skeptic objection carried forward
-        recommended.append(entry)
+        })
 
     recommended.sort(key=lambda e: _PRIORITY_ORDER.get(e["priority"], 1))  # quick wins first
 

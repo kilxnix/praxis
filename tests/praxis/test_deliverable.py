@@ -43,7 +43,7 @@ def test_render_leads_with_summary_pains_and_outcomes():
     assert "Here's the big picture." in md                       # summary leads
     assert "copying leads by hand" in md                         # plain-language pain
     assert "You stop copying leads by hand" in md                # outcome is the headline
-    assert "technical detail here" in md                         # how-it-works kept, secondary
+    assert "technical detail here" not in md                     # technical 'how' NOT leaked
 
 
 def test_render_pains_fallback_to_friction_nodes():

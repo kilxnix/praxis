@@ -30,12 +30,7 @@ def to_markdown(deliverable, title="AI Implementation Plan"):
     for e in fits:
         headline = e.get("outcome") or e["what_it_does"]
         out.append(f"### {e['priority'].title()} — {headline}")
-        out.append(f"*Step: {e['step']} · effort {e['effort']} · saves {e['time_saved']} · "
-                   f"risk {e['risk']}*")
-        out.append("")
-        out.append(f"How it would work: {e['what_it_does']}")
-        if e.get("caveat"):
-            out.append(f"- Note from our review: {e['caveat']}")
+        out.append(f"*effort {e['effort']} · saves {e['time_saved']} time · risk {e['risk']}*")
         out.append("")
 
     out += ["## Suggested order", ""]
