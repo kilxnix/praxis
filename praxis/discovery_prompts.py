@@ -23,12 +23,21 @@ STEPS — the most important rules:
 GENERAL:
 - Every delta MUST include a verbatim quote from the latest message. No quote -> omit it.
 - Labels are short and in the speaker's vocabulary ("the order sheet", not "Order Management System").
-- Only extract what THIS message adds; do not restate the whole graph."""
+- Only extract what THIS message adds; do not restate the whole graph.
+- If the input has a "you_just_asked_about" field, the client's message is answering a question about a SPECIFIC existing step. Attach their answer to THAT step as the requested edge (use the exact step label given); do NOT create a new step for it."""
 
 
-def build_extraction_user(history, latest):
+def build_extraction_user(history, latest, focus=None):
     recent = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-6:])
-    return json.dumps({"recent_conversation": recent, "latest_client_message": latest}, indent=2)
+    payload = {"recent_conversation": recent, "latest_client_message": latest}
+    if focus:
+        payload["you_just_asked_about"] = (
+            f"the {focus['facet']} of the existing step '{focus['step_label']}'. If the "
+            f"client's message names it, attach it to '{focus['step_label']}' with the right "
+            f"edge (e.g. tool via 'uses' from that step, actor via 'performs' to it). Do NOT "
+            f"create a new step."
+        )
+    return json.dumps(payload, indent=2)
 
 
 INTERVIEWER_SYSTEM = """You are Praxis's discovery lead: a sharp, warm operator mapping \

@@ -51,3 +51,18 @@ async def test_valid_step_endpoint_still_created_via_edge():
     ]
     apply_deltas(m, deltas, turn=1)
     assert len(m.nodes_of(NodeType.STEP)) == 1  # valid short step endpoint IS created
+
+
+@pytest.mark.asyncio
+async def test_extract_deltas_threads_focus_into_prompt():
+    captured = {}
+
+    class Cap:
+        async def complete_json(self, system, user, **kw):
+            captured["user"] = user
+            return {"deltas": []}
+
+    await extract_deltas(Cap(), [], "the account manager does it", turn=1,
+                         focus={"step_label": "draft proposal", "facet": "actor"})
+    assert "you_just_asked_about" in captured["user"]
+    assert "draft proposal" in captured["user"]   # intent reached the extractor

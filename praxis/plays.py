@@ -104,3 +104,15 @@ REGISTRY = [
 def select_play(state: InterviewState) -> Play:
     candidates = [p for p in REGISTRY if p.matches(state)]
     return max(candidates, key=lambda p: p.priority)
+
+
+def focus_target(state: InterviewState):
+    """The structured intent of the selected play: which step + facet the next question
+    is trying to complete, so the extractor can attach the client's answer to that step.
+    None when the selected play isn't targeting a specific step's facet."""
+    play = select_play(state)
+    if play.id == "complete_step_facets":
+        g = _nonfriction_gap(state)
+        if g:
+            return {"step_label": g[0].label, "facet": (g[1][0] if g[1] else "actor")}
+    return None

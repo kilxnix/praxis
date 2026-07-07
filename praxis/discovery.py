@@ -3,15 +3,15 @@ apply them to the WorkflowModel, and ask the next gap-driven question."""
 from praxis.models import WorkflowModel, NodeType, EdgeType, Evidence
 from praxis import discovery_prompts as P
 from praxis.discovery_signals import canonical_label, is_valid_step_label
-from praxis.plays import InterviewState, select_play
+from praxis.plays import InterviewState, select_play, focus_target
 
 _VALID_NODE = {t.value for t in NodeType}
 _VALID_EDGE = {t.value for t in EdgeType}
 
 
-async def extract_deltas(client, history, latest_msg, turn):
+async def extract_deltas(client, history, latest_msg, turn, focus=None):
     result = await client.complete_json(P.EXTRACTION_SYSTEM,
-                                        P.build_extraction_user(history, latest_msg))
+                                        P.build_extraction_user(history, latest_msg, focus))
     out = []
     for d in result.get("deltas", []):
         if not isinstance(d, dict):
@@ -82,9 +82,11 @@ async def next_question(client, model, history):
             last = m.get("content", "")
             break
     state = InterviewState(model, last_answer=last)
-    hint = select_play(state).focus(state)
+    play = select_play(state)
+    hint = play.focus(state)
+    intent = focus_target(state)   # which step + facet this question targets, or None
     user = P.build_interviewer_user(history, hint)
     text = await client.complete(P.INTERVIEWER_SYSTEM,
                                  [{"role": "user", "content": user}],
                                  max_tokens=120, temperature=0.7)
-    return text.strip()
+    return text.strip(), intent

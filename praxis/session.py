@@ -23,6 +23,7 @@ class DiscoverySession:
         self.history = [{"role": "assistant", "content": OPENING}]
         self.turn = 0
         self.last_new_step_turn = 0
+        self.pending_focus = None   # step+facet the last question targeted (intent-directed extraction)
 
     def opening_line(self):
         return OPENING
@@ -43,7 +44,8 @@ class DiscoverySession:
         self.turn += 1
         self.history.append({"role": "user", "content": client_message})
         before = len(self.model.nodes_of(NodeType.STEP))
-        deltas = await extract_deltas(self.client, self.history, client_message, self.turn)
+        deltas = await extract_deltas(self.client, self.history, client_message, self.turn,
+                                      focus=self.pending_focus)
         apply_deltas(self.model, deltas, self.turn)
         if len(self.model.nodes_of(NodeType.STEP)) > before:
             self.last_new_step_turn = self.turn   # a new step surfaced this turn
@@ -53,6 +55,6 @@ class DiscoverySession:
             await consolidate_steps(self.client, self.model)   # final cleanup pass
             self.history.append({"role": "assistant", "content": CLOSING})
             return CLOSING
-        q = await next_question(self.client, self.model, self.history)
+        q, self.pending_focus = await next_question(self.client, self.model, self.history)
         self.history.append({"role": "assistant", "content": q})
         return q
