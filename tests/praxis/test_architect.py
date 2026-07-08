@@ -61,6 +61,41 @@ async def test_design_interventions_empty_opportunities():
     assert ivs == []
 
 
+def _two_opps():
+    return [
+        Opportunity("copy leads to spreadsheet", "automate manual data transfer",
+                    "auto-import leads", "I copy each lead into the sheet by hand"),
+        Opportunity("send follow-up email", "draft or generate text",
+                    "draft the reply", "then I type out a follow-up to each one"),
+    ]
+
+
+class DropsThenCoversClient:
+    """First call designs only the first opportunity (drops the second); the re-prompt for the
+    missing one then covers it. Proves the Architect can't silently drop an opportunity."""
+    def __init__(self):
+        self.calls = 0
+    async def complete_json(self, system, user, **kw):
+        self.calls += 1
+        if self.calls == 1:
+            return {"interventions": [
+                {"step_label": "copy leads to spreadsheet", "what_it_does": "auto-import rows"}]}
+        return {"interventions": [
+            {"step_label": "send follow-up email", "what_it_does": "draft each reply for review"}]}
+
+
+@pytest.mark.asyncio
+async def test_design_interventions_reprompts_for_dropped_opportunity():
+    from praxis.models import NodeType, Evidence
+    m = _map()
+    m.add_node(NodeType.STEP, "send follow-up email", [Evidence("I type out a follow-up", 1)])
+    client = DropsThenCoversClient()
+    ivs = await design_interventions(client, m, _two_opps())
+    labels = {iv.step_label for iv in ivs}
+    assert labels == {"copy leads to spreadsheet", "send follow-up email"}   # both covered
+    assert client.calls == 2                                                 # took a re-prompt
+
+
 @pytest.mark.asyncio
 async def test_design_interventions_dedups_by_step():
     payload = {"interventions": [

@@ -19,7 +19,14 @@ ARCHITECT_SYSTEM = (
     "Be specific to their actual tools. Address ONLY the one opportunity — do NOT invent "
     "adjacent features, approval workflows, or automation the owner never mentioned. If the "
     "owner values doing a step themselves, keep them in control (assist, don't replace it). "
-    "Keep each intervention minimal, grounded, and practical. Do NOT estimate ROI or rank them."
+    "Keep each intervention minimal, grounded, and practical. Do NOT estimate ROI or rank them.\n\n"
+    "CRITICAL: design an intervention for EVERY opportunity you are given — one per opportunity, "
+    "no exceptions. Do NOT skip, drop, or decline one because it feels too aggressive, premature, "
+    "or risky. Deciding whether a change is worth it or too risky is the skeptic's and "
+    "business-case's job, not yours. If a change feels risky or heavy, design a SMALLER, "
+    "human-in-the-loop, or deferred version of it — but still design it. Your caution shapes HOW "
+    "you design each intervention, never WHETHER you design it. The number of interventions you "
+    "return must equal the number of opportunities you were given."
 )
 
 
@@ -81,18 +88,42 @@ def _parse_interventions(result, allowed_steps):
     return out
 
 
-async def design_interventions(client, model, opportunities):
-    """One intervention per opportunity, anchored to the opportunity's step."""
+def _memory_preamble(memory_text):
+    if not memory_text:
+        return ""
+    return ("HOW YOU'VE SIZED UP THIS BUSINESS — let this shape HOW you design each "
+            "intervention (how cautious, how much you keep the owner in control), never "
+            "WHETHER you design one. Still design one per opportunity:\n" + memory_text + "\n\n")
+
+
+async def design_interventions(client, model, opportunities, memory_text=""):
+    """One intervention per opportunity, anchored to the opportunity's step. If the architect
+    sat in on the interview, they design from what they understood about how this owner works
+    (memory_text) — including what to keep them in control of.
+
+    The Architect must never DROP an opportunity (rejecting is the skeptic's job). The local
+    model sometimes ignores that and returns fewer, so we structurally re-prompt for any
+    opportunity left undesigned until every one is covered or a bounded number of tries is up."""
     if not opportunities:
         return []
-    opp_steps = {o.step_label for o in opportunities}
-    user = ("WORKFLOW MAP:\n" + serialize_map(model)
-            + "\n\nOPPORTUNITIES:\n" + _serialize_opps(opportunities))
-    result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
-    return _parse_interventions(result, opp_steps)
+    map_text = serialize_map(model)
+    designed = {}      # step_label -> Intervention
+    pending = list(opportunities)
+    for _ in range(3):
+        if not pending:
+            break
+        user = (_memory_preamble(memory_text) + "WORKFLOW MAP:\n" + map_text
+                + "\n\nOPPORTUNITIES (design one intervention for EACH — do not skip any):\n"
+                + _serialize_opps(pending))
+        result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
+        for iv in _parse_interventions(result, {o.step_label for o in pending}):
+            designed.setdefault(iv.step_label, iv)
+        pending = [o for o in opportunities if o.step_label not in designed]
+    # Preserve the Analyst's ordering.
+    return [designed[o.step_label] for o in opportunities if o.step_label in designed]
 
 
-async def redesign_interventions(client, model, opportunities, objections):
+async def redesign_interventions(client, model, opportunities, objections, memory_text=""):
     """Redesign flagged interventions to address the Skeptic's objections (the bounce-back)."""
     if not opportunities:
         return []
@@ -103,5 +134,8 @@ async def redesign_interventions(client, model, opportunities, objections):
     )
     user = ("WORKFLOW MAP:\n" + serialize_map(model)
             + "\n\nFLAGGED OPPORTUNITIES + THE SKEPTIC'S OBJECTIONS:\n" + obj_lines)
+    if memory_text:
+        user = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS INTERVIEW (redesign around how "
+                "this owner actually works):\n" + memory_text + "\n\n" + user)
     result = await client.complete_json(REDESIGN_SYSTEM, user, max_tokens=2048)
     return _parse_interventions(result, opp_steps)
