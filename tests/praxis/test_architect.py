@@ -105,3 +105,40 @@ async def test_design_interventions_dedups_by_step():
     ivs = await design_interventions(FakeClient(payload), _map(), _opps())
     assert len(ivs) == 1                       # one intervention per step
     assert ivs[0].what_it_does == "first idea"
+
+
+from praxis.architect import is_timid, Intervention as _IV
+
+
+def test_is_timid_flags_non_solutions():
+    assert is_timid(_IV("s", "Remains completely inert during the call", "x", "y", "z")) is True
+    assert is_timid(_IV("s", "provides an empty document", "x", "y", "z")) is True
+    assert is_timid(_IV("s", "captures it so you still type it later", "x", "y", "z")) is True
+    assert is_timid(_IV("s", "reads the ticket and writes every line into QuickBooks for you",
+                        "x", "y", "you review and approve")) is False
+
+
+class BoldensClient:
+    """First design is timid; the bolden pass returns a real one."""
+    def __init__(self):
+        self.calls = 0
+    async def complete_json(self, system, user, **kw):
+        self.calls += 1
+        if "TOO TIMID" in user or "too timid" in system.lower():
+            return {"interventions": [{"step_label": "type into QuickBooks",
+                    "what_it_does": "reads the paper ticket and enters every line into QuickBooks for you"}]}
+        return {"interventions": [{"step_label": "type into QuickBooks",
+                "what_it_does": "provides an empty document; you still type each line"}]}
+
+
+@pytest.mark.asyncio
+async def test_design_interventions_boldens_timid_design():
+    from praxis.models import WorkflowModel, NodeType, Evidence
+    from praxis.analyst import Opportunity
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "type into QuickBooks", [Evidence("I type it all in at night", 1)])
+    opps = [Opportunity("type into QuickBooks", "automate data entry", "d", "I type it all in")]
+    ivs = await design_interventions(BoldensClient(), m, opps)
+    assert len(ivs) == 1
+    assert not is_timid(ivs[0])                       # the timid design was replaced
+    assert "for you" in ivs[0].what_it_does

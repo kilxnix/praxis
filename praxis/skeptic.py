@@ -22,6 +22,10 @@ SKEPTIC_SYSTEM = (
     "- it proposes a tool, app, or AI capability the owner never named (OCR, a reminder, a "
     "transcript, a photo lookup). Proposing a solution they hadn't thought of IS your team's "
     "job — the owner only has to have described the PAIN or STEP, not the fix.\n"
+    "- it removes manual drudgery the owner COMPLAINED about (re-typing, transcribing, copying "
+    "between tools). Lifting busywork they resent is the whole point — do not defend the "
+    "friction. Only their JUDGMENT and the decisions they value are protected, not their "
+    "data-entry chores.\n"
     "NEVER reject or weaken an item for being too conservative, or for naming a tool the owner "
     "didn't. Wanting more automation is the opposite of your job.\n\n"
     "- solid: grounded in something they actually said, genuinely helpful, and fits how they "
@@ -58,12 +62,15 @@ def _serialize(interventions, assessments):
     return "\n".join(lines)
 
 
-async def review(client, interventions, assessments):
+async def review(client, interventions, assessments, memory_text=""):
     if not interventions:
         return []
-    result = await client.complete_json(SKEPTIC_SYSTEM,
-                                        _serialize(interventions, assessments),
-                                        max_tokens=2048)
+    user = _serialize(interventions, assessments)
+    if memory_text:
+        user = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS INTERVIEW (judge each change "
+                "against what this owner actually needs and values, from this):\n" + memory_text
+                + "\n\nPROPOSED CHANGES:\n" + user)
+    result = await client.complete_json(SKEPTIC_SYSTEM, user, max_tokens=2048)
     raw = result.get("verdicts", []) if isinstance(result, dict) else []
     # Match each returned verdict to a real intervention by CANONICAL label (absorbs case,
     # punctuation, and article differences). Exact string-matching here silently dropped every

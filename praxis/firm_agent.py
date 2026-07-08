@@ -172,6 +172,13 @@ class FirmAgent:
             "for your role, and therefore what you will weight, watch for, and be wary of when "
             "you make your calls. Reconcile what you've seen into ONE coherent stance and resolve "
             "the tensions rather than listing them. Speak as yourself.\n\n"
+            "CRITICAL — do not confuse the two: the manual DRUDGERY the owner complains about "
+            "(re-typing, transcribing, scribbling, copying between tools) is the burden we exist "
+            "to REMOVE — never treat it as a ritual to preserve just because it's how they do it "
+            "today. What we protect is the owner's JUDGMENT and the decisions they value making "
+            "(who to serve, the diagnosis, the final call). Respect means keeping them in control "
+            "of the decisions, while aggressively lifting the drudgery off them — not leaving the "
+            "friction in place to be safe.\n\n"
             "Return JSON {\"stance\": \"<your business-specific reasoning stance>\"}."
         )
         learned = self.mind.recall()
