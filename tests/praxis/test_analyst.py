@@ -69,16 +69,18 @@ def _opp(label, severity, grounding):
     return Opportunity(label, "cap", "desc", "quote", severity, grounding)
 
 
-def test_evidence_bar_keeps_recurring_drops_weak():
+def test_evidence_bar_drops_weak_and_trivial_oneoffs():
     assert passes_evidence_bar(_opp("a", "low", "recurring")) is True    # recurring always clears
-    assert passes_evidence_bar(_opp("b", "high", "weak")) is False       # weak never clears
-    assert passes_evidence_bar(_opp("c", "high", "one_off")) is True     # severe one-off clears
-    assert passes_evidence_bar(_opp("d", "medium", "one_off")) is False  # minor one-off is an anecdote
+    assert passes_evidence_bar(_opp("b", "high", "weak")) is False       # invented anchor: dropped
+    assert passes_evidence_bar(_opp("b2", "low", "weak")) is False       # weak dropped regardless
+    assert passes_evidence_bar(_opp("c", "high", "one_off")) is True     # notable one-off clears
+    assert passes_evidence_bar(_opp("c2", "medium", "one_off")) is True  # medium one-off clears
+    assert passes_evidence_bar(_opp("d", "low", "one_off")) is False     # trivial anecdote dropped
 
 
 def test_apply_evidence_bar_partitions_and_records_dropped():
     opps = [_opp("keep1", "low", "recurring"), _opp("keep2", "high", "one_off"),
-            _opp("drop1", "medium", "one_off"), _opp("drop2", "high", "weak")]
+            _opp("drop1", "low", "one_off"), _opp("drop2", "high", "weak")]
     kept, dropped = apply_evidence_bar(opps)
     assert {o.step_label for o in kept} == {"keep1", "keep2"}
     assert {o.step_label for o in dropped} == {"drop1", "drop2"}

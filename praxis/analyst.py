@@ -4,8 +4,9 @@ specific step and the client's own words. The lens is a content-free taxonomy of
 good at (never a business template), so it stays Ocean-safe. The Analyst only IDENTIFIES
 opportunities; it does not design the solution (Architect) or score them (Business-case)."""
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from praxis.models import NodeType, EdgeType
+from praxis.grounding import measure_grounding
 
 CAPABILITIES = [
     "automate moving data between tools (copy-paste, re-keying)",
@@ -36,26 +37,21 @@ ANALYST_SYSTEM = (
     "For each, also rate SEVERITY — how big a pain this is TO THE OWNER, judged by how "
     "much they emphasized it, how often it comes up, and how much time/worry it causes: "
     "'high' (a top pain they clearly feel), 'medium', or 'low' (minor).\n\n"
-    "And rate GROUNDING — how well what THEY SAID supports this being a real, worth-solving "
-    "problem (be strict and honest; this is a filter):\n"
-    "- 'recurring': they described it as something that happens repeatedly / every time / as "
-    "part of their routine, or they clearly emphasized it as a real pain.\n"
-    "- 'one_off': a single vivid anecdote or a thing mentioned once in passing — it happened, "
-    "but there's no sign it's a recurring pattern.\n"
-    "- 'weak': you're inferring it mostly because AI *could* help there, not because they "
-    "actually described friction. If you're reaching, say 'weak' — do not dress it up.\n\n"
+    "The 'evidence' you give MUST be an exact phrase the owner actually said (copy it from the "
+    "map's said=\"...\" text or a node label). Do not paraphrase or invent it — a downstream "
+    "check measures whether your evidence really appears in their words, and anything invented "
+    "is discarded. So only raise an opportunity you can back with their real words.\n\n"
     "Return JSON {\"opportunities\": [ {\"step_label\": \"<an EXACT step label from "
     "the map>\", \"capability\": \"<one capability from the list above, verbatim>\", "
     "\"description\": \"<specific to THIS business, in their terms>\", \"evidence\": \"<the "
-    "exact phrase from the map that shows the manual effort or friction>\", \"severity\": "
-    "\"high|medium|low\", \"grounding\": \"recurring|one_off|weak\"} ] }.\n\n"
+    "exact phrase THEY said that shows the manual effort or friction>\", \"severity\": "
+    "\"high|medium|low\"} ] }.\n\n"
     "Rules:\n"
     "- Find ALL the real opportunities across the workflow — don't stop at one. But every "
     "opportunity MUST address something the owner actually does (not an assumption) and quote "
     "the evidence that shows the manual effort or friction. No quote, no opportunity.\n"
-    "- Rate severity and grounding HONESTLY (see above) — later stages use them to focus on the "
-    "biggest, best-supported pains, so you don't pre-filter; just be truthful. Do not inflate a "
-    "one-off into 'recurring' or a guess into a real pain.\n"
+    "- Rate severity HONESTLY — later stages use it to focus on the biggest pains, so you don't "
+    "pre-filter; just be truthful about which pains are big vs. minor.\n"
     "- Be specific to THIS business, not generic advice. Do NOT design the solution or estimate "
     "ROI — only identify WHERE AI fits and WHY."
 )
@@ -171,23 +167,26 @@ async def find_opportunities(client, model, memory_text=""):
             if isinstance(o, dict) and o.get("no_fit") and o.get("step_label") in step_labels:
                 examined.add(o.get("step_label"))
 
-    # Preserve workflow order.
-    return [by_step[s.label] for s in steps if s.label in by_step]
+    # OWNED JUDGMENT: the model does not get to decide how well-grounded an opportunity is — we
+    # MEASURE it from the owner's own recorded words and overwrite the model's self-label.
+    ordered = [by_step[s.label] for s in steps if s.label in by_step]
+    return [replace(o, grounding=measure_grounding(o, model)) for o in ordered]
 
 
 def passes_evidence_bar(opp):
-    """The judgment gate the critique demanded: distinguish real, recurring friction from a
-    one-off anecdote or a capability-driven guess, BEFORE anything gets designed.
-    - recurring: always clears — it's a real, repeated pain.
-    - one_off:   clears ONLY if severe (a rare but catastrophic pain is still worth solving);
-                 otherwise it's an anecdote, not a plan item.
-    - weak:      never clears — it's 'AI could help here', not a pain they described.
+    """The judgment gate — decided on MEASURED grounding (praxis.grounding), not the model's word.
+    - weak:      the anchor isn't substantiated by anything the owner actually said — an invented,
+                 capability-driven guess. Always dropped; this is the real filter the critique
+                 demanded ('driven by available AI, not by what they described').
+    - one_off:   a single, non-emphasized mention. Kept UNLESS it's also low severity — a trivial
+                 anecdote. (Severity-based selection downstream keeps it from leading the plan.)
+    - recurring: a real, repeated / emphasized pain. Always clears.
     """
-    if opp.grounding == "recurring":
-        return True
-    if opp.grounding == "one_off":
-        return opp.severity == "high"
-    return False
+    if opp.grounding == "weak":
+        return False
+    if opp.grounding == "one_off" and opp.severity == "low":
+        return False
+    return True
 
 
 def apply_evidence_bar(opportunities):
