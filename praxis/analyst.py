@@ -106,19 +106,7 @@ def serialize_map(model) -> str:
     return "\n".join(lines)
 
 
-async def find_opportunities(client, model, memory_text=""):
-    """Return evidence-anchored Opportunity objects for a Discovery workflow map. If the analyst
-    sat in on the interview, they reason from what they came to understand (memory_text), not
-    just the flattened map."""
-    step_labels = {s.label for s in model.nodes_of(NodeType.STEP)}
-    if not step_labels:
-        return []
-    user = serialize_map(model)
-    if memory_text:
-        user = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS BUSINESS'S INTERVIEW "
-                "(reason from this, not just the map below):\n" + memory_text
-                + "\n\nTHE WORKFLOW MAP:\n" + user)
-    result = await client.complete_json(ANALYST_SYSTEM, user, max_tokens=2048)
+def _parse_opportunities(result, step_labels):
     out = []
     for o in (result.get("opportunities", []) if isinstance(result, dict) else []):
         if not isinstance(o, dict):
@@ -135,6 +123,56 @@ async def find_opportunities(client, model, memory_text=""):
             out.append(Opportunity(label, (o.get("capability") or "").strip(),
                                     description, evidence, severity, grounding))
     return out
+
+
+async def find_opportunities(client, model, memory_text=""):
+    """Return evidence-anchored Opportunity objects for a Discovery workflow map. If the analyst
+    sat in on the interview, they reason from what they came to understand (memory_text).
+
+    The Analyst on a local model is lazy — it returns 1 opportunity from a 7-step map full of
+    obvious drudgery. So we structurally enforce coverage: after the first pass, re-prompt for
+    any step it IGNORED (each must get an opportunity OR an explicit 'no AI fit'), and dedup so
+    the same step can't be flagged twice."""
+    steps = model.nodes_of(NodeType.STEP)
+    step_labels = {s.label for s in steps}
+    if not step_labels:
+        return []
+    prefix = ""
+    if memory_text:
+        prefix = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS BUSINESS'S INTERVIEW "
+                  "(reason from this, not just the map below):\n" + memory_text + "\n\n")
+    map_text = serialize_map(model)
+
+    result = await client.complete_json(ANALYST_SYSTEM, prefix + "THE WORKFLOW MAP:\n" + map_text,
+                                        max_tokens=2048)
+    by_step = {}      # step_label -> Opportunity (first wins; dedup)
+    examined = set()
+    for o in _parse_opportunities(result, step_labels):
+        by_step.setdefault(o.step_label, o)
+        examined.add(o.step_label)
+
+    # Coverage passes: force the Analyst to look at the steps it skipped. A step it examines and
+    # legitimately finds no fit for is marked examined (via "no_fit"), so we don't loop on it.
+    for _ in range(2):
+        unexamined = [s.label for s in steps if s.label not in examined]
+        if not unexamined:
+            break
+        user = (prefix + "THE WORKFLOW MAP:\n" + map_text
+                + "\n\nYou did NOT evaluate these steps. For EACH one, either give an opportunity "
+                "(same JSON shape) OR mark it done with {\"step_label\":\"..\",\"no_fit\":true} if "
+                "there is genuinely no AI fit. Do not ignore any:\n"
+                + "\n".join(f"- {lbl}" for lbl in unexamined))
+        result = await client.complete_json(ANALYST_SYSTEM, user, max_tokens=2048)
+        for o in _parse_opportunities(result, step_labels):
+            by_step.setdefault(o.step_label, o)
+            examined.add(o.step_label)
+        # steps the Analyst explicitly cleared as no-fit are examined too
+        for o in (result.get("opportunities", []) if isinstance(result, dict) else []):
+            if isinstance(o, dict) and o.get("no_fit") and o.get("step_label") in step_labels:
+                examined.add(o.get("step_label"))
+
+    # Preserve workflow order.
+    return [by_step[s.label] for s in steps if s.label in by_step]
 
 
 def passes_evidence_bar(opp):
