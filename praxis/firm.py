@@ -5,7 +5,7 @@ the Architect for a redesign, and every action + hand-off is recorded on the eng
 
 Hardening: the content-gating stages retry on an empty (stochastic) LLM return."""
 from praxis.engagement import EngagementState
-from praxis.analyst import find_opportunities
+from praxis.analyst import find_opportunities, apply_evidence_bar
 from praxis.architect import design_interventions, redesign_interventions
 from praxis.business_case import score_interventions
 from praxis.skeptic import review
@@ -52,11 +52,21 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label=""):
                      "each member synthesized this business into a stance to reason from",
                      consumed_from="discovery")
 
-    opportunities = await _attempt(lambda: find_opportunities(client, model, _mem(firm, "analyst")))
+    found = await _attempt(lambda: find_opportunities(client, model, _mem(firm, "analyst")))
+    # Evidence bar: keep only opportunities grounded in real, recurring pain (or a severe
+    # one-off); drop capability-driven guesses BEFORE design, so weak ideas never become
+    # recommendations. Recorded transparently — never a silent truncation.
+    opportunities, dropped = apply_evidence_bar(found)
     state.opportunities = opportunities
     state.record("analyst", "found_opportunities",
-                 f"marked {len(opportunities)} AI-opportunity points",
+                 f"marked {len(found)} points; {len(opportunities)} cleared the evidence bar, "
+                 f"{len(dropped)} dropped as one-off/weak",
                  consumed_from="discovery", count=len(opportunities))
+    if dropped:
+        state.record("analyst", "gated_weak_opportunities",
+                     "set aside as not grounded in recurring pain: "
+                     + "; ".join(f"{o.step_label} ({o.grounding})" for o in dropped),
+                     consumed_from="analyst", count=len(dropped))
     if not opportunities:
         state.deliverable = assemble_deliverable(model, [], [], [], [])
         state.record("principal", "assembled_deliverable", "no opportunities found")

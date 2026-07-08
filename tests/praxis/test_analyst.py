@@ -1,6 +1,7 @@
 import pytest
 from praxis.models import WorkflowModel, NodeType, EdgeType, Evidence
-from praxis.analyst import find_opportunities, serialize_map
+from praxis.analyst import (find_opportunities, serialize_map, Opportunity,
+                            passes_evidence_bar, apply_evidence_bar)
 
 
 def _map():
@@ -51,3 +52,33 @@ async def test_find_opportunities_keeps_anchored_drops_ungrounded():
 async def test_find_opportunities_empty_map():
     opps = await find_opportunities(FakeClient({"opportunities": []}), WorkflowModel())
     assert opps == []
+
+
+@pytest.mark.asyncio
+async def test_find_opportunities_captures_grounding():
+    payload = {"opportunities": [
+        {"step_label": "copy leads to spreadsheet", "capability": "automate",
+         "description": "d", "evidence": "I copy each lead by hand",
+         "severity": "high", "grounding": "one_off"}]}
+    opps = await find_opportunities(FakeClient(payload), _map())
+    assert opps[0].grounding == "one_off"
+    assert opps[0].severity == "high"
+
+
+def _opp(label, severity, grounding):
+    return Opportunity(label, "cap", "desc", "quote", severity, grounding)
+
+
+def test_evidence_bar_keeps_recurring_drops_weak():
+    assert passes_evidence_bar(_opp("a", "low", "recurring")) is True    # recurring always clears
+    assert passes_evidence_bar(_opp("b", "high", "weak")) is False       # weak never clears
+    assert passes_evidence_bar(_opp("c", "high", "one_off")) is True     # severe one-off clears
+    assert passes_evidence_bar(_opp("d", "medium", "one_off")) is False  # minor one-off is an anecdote
+
+
+def test_apply_evidence_bar_partitions_and_records_dropped():
+    opps = [_opp("keep1", "low", "recurring"), _opp("keep2", "high", "one_off"),
+            _opp("drop1", "medium", "one_off"), _opp("drop2", "high", "weak")]
+    kept, dropped = apply_evidence_bar(opps)
+    assert {o.step_label for o in kept} == {"keep1", "keep2"}
+    assert {o.step_label for o in dropped} == {"drop1", "drop2"}
