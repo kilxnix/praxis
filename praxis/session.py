@@ -37,6 +37,27 @@ class DiscoverySession:
     def opening_line(self):
         return OPENING
 
+    async def seed_from_text(self, text):
+        """SEED discovery from ingested materials (documents, OCR'd photos, transcripts) so the
+        interview STARTS already knowing the business and spends its questions on the GAPS the
+        materials didn't cover. Ingest increases what discovery starts with — it does not replace
+        the interview or the firm. Returns the first (gap-directed) question to ask.
+
+        After this, drive the session normally with submit(); the plays/arc engine sees what's
+        already mapped and probes what's missing (parts-ordering, invoicing, the terminal, etc.)."""
+        from praxis.discovery import ingest_text_to_model   # local import: avoid a cycle
+        model, transcript = await ingest_text_to_model(self.client, text)
+        self.model = model
+        # Fold the materials in as prior context, then open with a gap question instead of the
+        # generic opener — we already know a lot, so don't make them repeat it.
+        self.history = [{"role": "assistant", "content": OPENING}]
+        self.history += [{"role": "user", "content": "(from our materials) " + m["content"]}
+                         for m in transcript]
+        self.last_new_step_turn = 0
+        q, self.pending_focus = await next_question(self.client, self.model, self.history)
+        self.history.append({"role": "assistant", "content": q})
+        return q
+
     def is_intake_complete(self):
         # Authoritative stop for the interview loop: the turn cap, or we deliberately closed.
         return self.turn >= self.max_turns or self._closed

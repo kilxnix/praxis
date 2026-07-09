@@ -48,12 +48,12 @@
     <button id="startBtn">Start interview</button>
   </div>
   <div class="ingest" id="ingestBox">
-    <div class="or">— or ingest real materials —</div>
+    <div class="or">Attach materials to seed the interview (optional)</div>
     <input type="file" id="files" multiple
            accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.wav,.mp3,.m4a,.flac,.ogg,.mp4">
-    <button id="ingestBtn">Ingest &amp; build plan</button>
-    <div class="hint">Documents (.txt .md .pdf .docx) and images (.png .jpg — OCR of forms, tickets,
-      notes) work now. Audio (.mp3 .wav …) uses WhisperX (<code>pip install whisperx</code> + ffmpeg).</div>
+    <div class="hint">Documents (.txt .md .pdf .docx), images (.png .jpg — OCR of forms, tickets,
+      notes), audio (.mp3 .wav — WhisperX). Praxis reads them first, then interviews you about
+      the gaps — so it starts already knowing your business.</div>
   </div>
 
   <div id="chat"></div>
@@ -113,28 +113,32 @@ function showDeliverable(m){
   document.getElementById('againBtn').classList.remove('hidden');
 }
 
-document.getElementById('startBtn').onclick = () => {
-  const name = nameEl.value.trim(); if(!name) { nameEl.focus(); return; }
-  connect();
-  ws.onopen = () => ws.send(JSON.stringify({type:'start', name}));
+function beginChat(){
   setup.classList.add('hidden'); document.getElementById('ingestBox').classList.add('hidden');
   composer.classList.remove('hidden'); answer.focus();
-};
+}
 
-document.getElementById('ingestBtn').onclick = async () => {
-  const name = nameEl.value.trim() || 'engagement';
+document.getElementById('startBtn').onclick = async () => {
+  const name = nameEl.value.trim(); if(!name) { nameEl.focus(); return; }
   const files = document.getElementById('files').files;
-  if(!files.length){ document.getElementById('files').focus(); return; }
-  setup.classList.add('hidden'); document.getElementById('ingestBox').classList.add('hidden');
-  status('Ingesting your materials and building the plan on the local model — give it a minute…');
-  const fd = new FormData(); fd.append('name', name);
-  for(const f of files) fd.append('files', f);
-  try{
-    const r = await fetch('/ingest', {method:'POST', body:fd});
-    const m = await r.json();
-    if(m.error){ status('⚠ '+m.error); document.getElementById('againBtn').classList.remove('hidden'); return; }
-    showDeliverable(m);
-  }catch(e){ status('⚠ '+e); document.getElementById('againBtn').classList.remove('hidden'); }
+  if(files.length){
+    // Seed discovery from the attached materials, THEN interview the gaps.
+    beginChat();
+    status('Reading your materials on the local model — then I\'ll ask about the gaps…');
+    const fd = new FormData(); fd.append('name', name);
+    for(const f of files) fd.append('files', f);
+    try{
+      const r = await fetch('/seed', {method:'POST', body:fd});
+      const m = await r.json();
+      if(m.error){ status('⚠ '+m.error); return; }
+      connect();
+      ws.onopen = () => ws.send(JSON.stringify({type:'start', session_id:m.session_id}));
+    }catch(e){ status('⚠ '+e); }
+  } else {
+    connect();
+    ws.onopen = () => ws.send(JSON.stringify({type:'start', name}));
+    beginChat();
+  }
 };
 function send(){ const t=answer.value.trim(); if(!t||!ws) return; bubble(t,'me'); ws.send(JSON.stringify({type:'msg', text:t})); answer.value=''; }
 document.getElementById('sendBtn').onclick = send;

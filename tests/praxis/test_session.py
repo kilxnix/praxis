@@ -176,3 +176,26 @@ async def test_firm_forms_understanding_by_studying_the_interview():
     await study_firm(firm, transcript, "step: copy leads")
     assert all(not a.memory.is_empty() for a in firm.values())   # each formed its own read once
     assert "lead" in firm["skeptic"].memory.recall().lower()
+
+
+class _SeedClient:
+    """Extraction returns one step per chunk; question is a gap probe."""
+    async def complete_json(self, system, user, **kw):
+        if "beliefs" in system:            # firm study
+            return {"beliefs": []}
+        return {"deltas": [{"op": "add_node", "node_type": "step", "label": "file paperwork",
+                            "quote": "we file the paperwork"}]}
+    async def complete(self, system, messages, **kw):
+        return "What happens right after you file the paperwork?"
+
+
+@pytest.mark.asyncio
+async def test_seed_from_text_prepopulates_model_and_opens_with_gap_question():
+    s = DiscoverySession(_SeedClient(), live_firm=False)
+    q = await s.seed_from_text("We take orders.\n\nWe file the paperwork at the end.")
+    assert s.model.find_node("file paperwork", NodeType.STEP) is not None   # seeded from materials
+    assert isinstance(q, str) and "?" in q                                  # opens with a gap question
+    # the materials are folded into history as prior context, marked as such
+    assert any("from our materials" in m["content"] for m in s.history if m["role"] == "user")
+    # and the interview continues normally from here
+    assert not s.is_intake_complete()

@@ -10,6 +10,7 @@ All LLM work is the local Ollama; this server just wires the browser to the pipe
 import datetime
 import os
 import re
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -17,9 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, F
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from praxis.llm_client import OllamaClient
-from praxis.session import DiscoverySession, OPENING
-from praxis.discovery import ingest_text_to_model
-from praxis.firm_agent import assemble_firm
+from praxis.session import DiscoverySession
 from praxis.ingest import ingest_files, SUPPORTED_EXTS
 from praxis.pipeline import finalize, save_engagement
 from praxis.render import to_markdown
@@ -39,10 +38,16 @@ def _slug(name):
     return s or "engagement"
 
 
-@app.post("/ingest")
-async def ingest(name: str = Form("engagement"), files: list[UploadFile] = File(...)):
-    """Ingest real materials (documents / recordings) -> build the map -> run the firm ->
-    return the plan. No live interview: the business's own words drive the whole pipeline."""
+# Seeded-but-not-yet-started sessions, keyed by a token the browser passes to the WS.
+_SEEDED = {}
+
+
+@app.post("/seed")
+async def seed(name: str = Form("engagement"), files: list[UploadFile] = File(...)):
+    """Ingest real materials (documents / OCR'd photos / recordings) and SEED a discovery
+    session with them, so the interview starts already knowing the business and probes only the
+    gaps. Ingest increases what discovery starts with — it does not replace the interview.
+    Returns a session token + the first (gap-directed) question; the browser then opens the WS."""
     tmp_paths = []
     try:
         for up in files:
@@ -53,26 +58,19 @@ async def ingest(name: str = Form("engagement"), files: list[UploadFile] = File(
             with os.fdopen(fd, "wb") as f:
                 f.write(await up.read())
             tmp_paths.append(tp)
-
         try:
-            text = ingest_files(tmp_paths)      # documents extracted, audio transcribed (WhisperX)
+            text = ingest_files(tmp_paths)      # documents extracted, images OCR'd, audio transcribed
         except RuntimeError as e:               # e.g. WhisperX not installed
             return JSONResponse({"error": str(e)}, status_code=400)
         if not text.strip():
             return JSONResponse({"error": "no readable text found in the uploaded files"}, status_code=400)
 
-        client = OllamaClient()
-        try:
-            firm = assemble_firm(client)
-            model, transcript = await ingest_text_to_model(client, text)
-            state = await finalize(client, model, firm, transcript, name)
-        finally:
-            await client.close()
-
-        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        out = f"engagements/{_slug(name)}_{stamp}"
-        save_engagement(state, out)
-        return {"markdown": to_markdown(state.deliverable, name), "saved": out}
+        client = OllamaClient()                 # kept open; the WS that adopts this session closes it
+        session = DiscoverySession(client, live_firm=True)
+        first_q = await session.seed_from_text(text)
+        token = secrets.token_hex(8)
+        _SEEDED[token] = (session, name)
+        return {"session_id": token, "opening": first_q}
     finally:
         for tp in tmp_paths:
             try:
@@ -84,7 +82,7 @@ async def ingest(name: str = Form("engagement"), files: list[UploadFile] = File(
 @app.websocket("/ws")
 async def ws(sock: WebSocket):
     await sock.accept()
-    client = OllamaClient()
+    client = None
     session = None
     business = "engagement"
     try:
@@ -93,10 +91,17 @@ async def ws(sock: WebSocket):
             kind = data.get("type")
 
             if kind == "start":
-                business = data.get("name") or "engagement"
-                # A live human answers, but the firm still sits in on the interview.
-                session = DiscoverySession(client, live_firm=True)
-                await sock.send_json({"type": "bot", "text": session.opening_line()})
+                token = data.get("session_id")
+                if token and token in _SEEDED:
+                    # Adopt the session seeded from uploaded materials; open with its gap question.
+                    session, business = _SEEDED.pop(token)
+                    client = session.client
+                    await sock.send_json({"type": "bot", "text": session.history[-1]["content"]})
+                else:
+                    business = data.get("name") or "engagement"
+                    client = OllamaClient()
+                    session = DiscoverySession(client, live_firm=True)
+                    await sock.send_json({"type": "bot", "text": session.opening_line()})
 
             elif kind == "msg" and session is not None:
                 reply = await session.submit(data.get("text", ""))
@@ -118,4 +123,5 @@ async def ws(sock: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
