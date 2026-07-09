@@ -39,10 +39,56 @@ SKEPTIC_SYSTEM = (
     "real pain is fine — see above; only inventing a fake NEED is a reject.)\n\n"
     "Base every objection on the specific intervention and workflow in front of you, not on "
     "generic beliefs about small businesses or about automation.\n\n"
+    "CRITICAL — do NOT invent an owner preference. Your understanding of the business is YOUR "
+    "read, not the owner's stated words. You may NOT reject or weaken a change by claiming the "
+    "owner 'values control', 'wants a human in the loop', 'prefers to keep it manual', or "
+    "'requires final authority' UNLESS the owner ACTUALLY SAID SO. A person doing a step by hand "
+    "today is describing their CURRENT process, not stating they want to keep doing it by hand. "
+    "Automating manual data entry they complained about is NOT 'forcing them to change how they "
+    "work' — it is the job. Reject only for a CONCRETE risk the change introduces (it could fail, "
+    "error, act on bad data, break something) or for a need it plainly invents — never for a "
+    "preference you attribute to them without evidence.\n\n"
     "Return JSON {\"verdicts\": [ {\"step_label\": \"<exact step>\", \"verdict\": "
     "\"solid|weak|reject\", \"objection\": \"<one line; empty if solid>\"} ] }. Exactly one "
     "verdict per intervention."
 )
+
+# Owned guard against the recurring failure where the skeptic INVENTS an owner preference
+# ("they value human-in-the-loop control") and rejects the biggest opportunity on it. A
+# preference-framed objection cites what the owner supposedly wants; a risk-framed one names a
+# concrete way the change fails. We can tell them apart by their words.
+_PREFERENCE_MARKERS = (
+    "value", "prefer", "wants to keep", "want to keep", "human-in-the-loop", "human in the loop",
+    "in control", "final authority", "surrender", "strict gate", "how they work", "control of",
+    "their authority", "keep them in control", "removes control", "removing control",
+    "manual verification", "manual authority", "wants control", "likes doing", "values doing",
+)
+_RISK_MARKERS = (
+    "fail", "error", "wrong", "break", "lose", "loses", "losing", "miss", "risk of", "inaccurate",
+    "corrupt", "silently", "hallucin", "mistake", "unreliable", "duplicate", "double-bill",
+    "bad data", "incomplete", "delay",
+)
+
+
+def _is_preference_objection(objection):
+    o = (objection or "").lower()
+    return any(m in o for m in _PREFERENCE_MARKERS) and not any(r in o for r in _RISK_MARKERS)
+
+
+def ground_verdicts(verdicts, model):
+    """For a HIGH-burden step (measured drudgery the owner clearly wants gone), a reject/weak that
+    rests on an invented PREFERENCE rather than a concrete risk is not valid — flip it to solid.
+    This is the owned counterweight to the skeptic fabricating 'they value control' and killing
+    the top opportunity, which also contradicted the recommendations."""
+    from praxis.grounding import measure_burden, burden_severity
+    out = []
+    for v in verdicts:
+        if (v.verdict in ("reject", "weak") and _is_preference_objection(v.objection)
+                and burden_severity(measure_burden(v.step_label, model)) == "high"):
+            out.append(Verdict(v.step_label, "solid", ""))
+        else:
+            out.append(v)
+    return out
 
 
 @dataclass
@@ -67,9 +113,9 @@ async def review(client, interventions, assessments, memory_text=""):
         return []
     user = _serialize(interventions, assessments)
     if memory_text:
-        user = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS INTERVIEW (judge each change "
-                "against what this owner actually needs and values, from this):\n" + memory_text
-                + "\n\nPROPOSED CHANGES:\n" + user)
+        user = ("YOUR OWN READ OF THIS BUSINESS (this is the FIRM's understanding, NOT the "
+                "owner's stated words — do not cite it as a preference the owner expressed):\n"
+                + memory_text + "\n\nPROPOSED CHANGES:\n" + user)
     result = await client.complete_json(SKEPTIC_SYSTEM, user, max_tokens=2048)
     raw = result.get("verdicts", []) if isinstance(result, dict) else []
     # Match each returned verdict to a real intervention by CANONICAL label (absorbs case,

@@ -67,3 +67,42 @@ def test_signed_off():
 @pytest.mark.asyncio
 async def test_review_empty():
     assert await review(FakeClient({"verdicts": []}), [], []) == []
+
+
+from praxis.skeptic import ground_verdicts, _is_preference_objection
+from praxis.models import WorkflowModel, NodeType, Evidence
+
+
+def test_preference_vs_risk_objection_detection():
+    assert _is_preference_objection("the owner values keeping a human in the loop") is True
+    assert _is_preference_objection("removes their final authority before invoicing") is True
+    # a concrete risk is NOT a preference objection, even if it mentions control
+    assert _is_preference_objection("the OCR could misread and bill the wrong amount") is False
+    assert _is_preference_objection("it could fail silently on bad data") is False
+
+
+def test_ground_verdicts_flips_invented_preference_reject_on_high_burden_step():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "type into QuickBooks",
+               [Evidence("I type every work order into QuickBooks all day, hundreds of them", 1)])
+    # skeptic rejected the shop's biggest drudgery citing an invented preference
+    vs = [Verdict("type into QuickBooks", "reject", "the owner values keeping final authority")]
+    out = ground_verdicts(vs, m)
+    assert out[0].verdict == "solid"        # high burden + preference-only objection -> overturned
+
+
+def test_ground_verdicts_keeps_concrete_risk_rejection():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "type into QuickBooks",
+               [Evidence("I type every work order into QuickBooks all day, hundreds of them", 1)])
+    vs = [Verdict("type into QuickBooks", "reject", "the OCR could misread and bill the wrong client")]
+    out = ground_verdicts(vs, m)
+    assert out[0].verdict == "reject"       # a real risk still stands
+
+
+def test_ground_verdicts_leaves_low_burden_untouched():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "glance at calendar", [Evidence("I glance once", 1)])
+    vs = [Verdict("glance at calendar", "reject", "the owner values doing this themselves")]
+    out = ground_verdicts(vs, m)
+    assert out[0].verdict == "reject"       # low burden -> not overridden

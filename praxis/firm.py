@@ -8,7 +8,7 @@ from praxis.engagement import EngagementState
 from praxis.analyst import find_opportunities, apply_evidence_bar
 from praxis.architect import design_interventions, redesign_interventions
 from praxis.business_case import score_interventions
-from praxis.skeptic import review
+from praxis.skeptic import review, ground_verdicts
 from praxis.principal import assemble_deliverable
 from praxis.analyst import serialize_map
 from praxis.firm_agent import study_firm, morph_firm
@@ -141,6 +141,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
 
     verdicts = await _attempt(
         lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
+    verdicts = ground_verdicts(verdicts, model)   # overturn invented-preference rejections of core work
     state.verdicts = verdicts
     ns, nw, nr = _tally(verdicts)
     state.record("skeptic", "reviewed", f"{ns} solid, {nw} weak, {nr} reject",
@@ -171,6 +172,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
         state.assessments = assessments
         verdicts = await _attempt(
             lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
+        verdicts = ground_verdicts(verdicts, model)
         state.verdicts = verdicts
         ns, nw, nr = _tally(verdicts)
         state.record("skeptic", "re_reviewed",
