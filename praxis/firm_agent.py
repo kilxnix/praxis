@@ -98,24 +98,41 @@ class AgentMind:
         return "\n".join(f"- {l.text}" for l in recent)
 
     def save(self):
+        """ATOMIC save with a one-generation backup. A mind is an agent's accumulated learning —
+        a process kill mid-write must never corrupt it, and a corrupt main file must never
+        silently become a blank mind. Write to .tmp, keep the previous good file as .bak, then
+        os.replace (atomic on the same volume)."""
         if not self.path:
             return
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"key": self.key, "lessons": [asdict(l) for l in self.lessons]},
                       f, indent=2)
+        if os.path.exists(self.path):
+            try:
+                os.replace(self.path, self.path + ".bak")
+            except OSError:
+                pass
+        os.replace(tmp, self.path)
+
+    @classmethod
+    def _read(cls, path):
+        d = json.load(open(path, encoding="utf-8"))
+        return [Lesson(l.get("text", ""), l.get("from_business", ""))
+                for l in d.get("lessons", []) if isinstance(l, dict) and l.get("text")]
 
     @classmethod
     def load(cls, key, base_dir=DEFAULT_MINDS_DIR):
+        """Load the mind; if the main file is corrupt (e.g. a kill mid-write), fall back to the
+        .bak generation instead of silently wiping the agent's learning."""
         path = os.path.join(base_dir, f"{key}.json")
-        if os.path.exists(path):
-            try:
-                d = json.load(open(path, encoding="utf-8"))
-                lessons = [Lesson(l.get("text", ""), l.get("from_business", ""))
-                           for l in d.get("lessons", []) if isinstance(l, dict) and l.get("text")]
-                return cls(key, lessons, path)
-            except (ValueError, OSError):
-                pass
+        for candidate in (path, path + ".bak"):
+            if os.path.exists(candidate):
+                try:
+                    return cls(key, cls._read(candidate), path)
+                except (ValueError, OSError):
+                    continue
         return cls(key, [], path)
 
 

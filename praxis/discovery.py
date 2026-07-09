@@ -126,7 +126,9 @@ async def next_question(client, model, history, focus_override=None):
         hint = play.focus(state)
         intent = focus_target(state)   # which step + facet this question targets, or None
     user = P.build_interviewer_user(history, hint)
+    # 0.3 (was 0.45): enough warmth to phrase a natural question, low enough that the interview
+    # PATH stays steady — question drift early compounds into different maps by the end.
     text = await client.complete(P.INTERVIEWER_SYSTEM,
                                  [{"role": "user", "content": user}],
-                                 max_tokens=120, temperature=0.45)
+                                 max_tokens=120, temperature=0.3)
     return text.strip(), intent

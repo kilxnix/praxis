@@ -27,7 +27,12 @@ class OllamaClient:
         r.raise_for_status()
         return r.json()["message"]["content"]
 
-    async def complete_json(self, system, user, max_tokens=768, temperature=0.2) -> dict:
+    # temperature=0.0 on purpose: every structured call (extraction, opportunities, designs,
+    # scores, verdicts, morph, reflect) is a JUDGMENT — greedy decoding makes the same input
+    # give the same output, cutting the run-to-run variance that made the same business swing
+    # between 1 and 4 recommendations. Conversational question-phrasing keeps a little warmth
+    # via complete(); judgment gets none.
+    async def complete_json(self, system, user, max_tokens=768, temperature=0.0) -> dict:
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": system},

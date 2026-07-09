@@ -113,3 +113,41 @@ def test_mind_below_threshold_does_not_consolidate():
     for i in range(5):
         mind.add_lesson(f"lesson {i}")
     assert mind.needs_consolidation() is False
+
+
+def test_mind_save_is_atomic_and_keeps_backup(tmp_path):
+    path = str(tmp_path / "skeptic.json")
+    m = AgentMind("skeptic", path=path)
+    m.add_lesson("first generation")
+    m.save()
+    m.add_lesson("second generation")
+    m.save()
+    import os
+    assert os.path.exists(path)                       # current mind
+    assert os.path.exists(path + ".bak")              # previous good generation kept
+    assert not os.path.exists(path + ".tmp")          # no stray temp file
+    assert len(AgentMind.load("skeptic", str(tmp_path)).lessons) == 2
+
+
+def test_corrupt_mind_falls_back_to_backup_not_blank(tmp_path):
+    # A process kill mid-write must NEVER wipe an agent's learning: if the main file is
+    # corrupt, load() recovers the previous generation from .bak instead of returning blank.
+    path = str(tmp_path / "analyst.json")
+    m = AgentMind("analyst", path=path)
+    m.add_lesson("hard-won lesson")
+    m.save()
+    m.add_lesson("another lesson")
+    m.save()                                          # .bak now holds the 1-lesson generation
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('{"key": "analyst", "less')           # simulate kill mid-write
+    recovered = AgentMind.load("analyst", str(tmp_path))
+    assert len(recovered.lessons) == 1                # backup generation, NOT a blank mind
+    assert recovered.lessons[0].text == "hard-won lesson"
+
+
+def test_judgment_calls_are_greedy_decoded():
+    # Pin the variance contract: structured judgment defaults to temperature 0.0.
+    import inspect
+    from praxis.llm_client import OllamaClient
+    sig = inspect.signature(OllamaClient.complete_json)
+    assert sig.parameters["temperature"].default == 0.0
