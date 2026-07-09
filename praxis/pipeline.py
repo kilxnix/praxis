@@ -12,25 +12,30 @@ from praxis.principal import synthesize
 from praxis.render import to_markdown
 
 
-async def run_pipeline(interviewer_client, sim_client, scenario, clock, max_turns=25):
-    """Interview -> workflow map -> firm -> synthesized deliverable. Returns EngagementState."""
-    run = await run_scenario(interviewer_client, sim_client, scenario, clock,
-                             max_turns=max_turns, coverage_target=1.0, live_firm=True)
-    model = WorkflowModel.from_dict(run.model_dict)
-    state = await run_firm(interviewer_client, model, firm=run.firm, business_label=scenario.key)
-    state.transcript = run.transcript
-    state.deliverable = await synthesize(interviewer_client, state.transcript, state.deliverable)
+async def finalize(interviewer_client, model, firm, transcript, business_label):
+    """Take a finished Discovery map (+ the firm that sat in) through the diagnostic firm,
+    synthesize the owner-facing deliverable, and let the firm learn. Shared by the simulated
+    pipeline AND the live web app, so both produce identical output. Returns EngagementState."""
+    state = await run_firm(interviewer_client, model, firm=firm, business_label=business_label)
+    state.transcript = transcript
+    state.deliverable = await synthesize(interviewer_client, transcript, state.deliverable)
     state.record("principal", "synthesized",
                  "translated the plan into owner-facing pains, a summary, and outcomes",
                  consumed_from="discovery+all")
-    # The firm learns: each member distills durable lessons from this engagement into their mind
-    # (persisted to disk), so they arrive at the next business seasoned by this one.
-    learned = await reflect_firm(run.firm, scenario.key)
+    learned = await reflect_firm(firm, business_label)
     state.record("principal", "firm_reflected",
                  f"the firm distilled {learned} durable lessons into their minds",
                  consumed_from="all", count=learned)
-    state.firm = run.firm      # transient handle so the saver can write the employees' work
+    state.firm = firm          # transient handle so the saver can write the employees' work
     return state
+
+
+async def run_pipeline(interviewer_client, sim_client, scenario, clock, max_turns=25):
+    """Interview (simulated client) -> workflow map -> firm -> deliverable. Returns EngagementState."""
+    run = await run_scenario(interviewer_client, sim_client, scenario, clock,
+                             max_turns=max_turns, coverage_target=1.0, live_firm=True)
+    model = WorkflowModel.from_dict(run.model_dict)
+    return await finalize(interviewer_client, model, run.firm, run.transcript, scenario.key)
 
 
 def save_engagement(state, out_dir, firm=None):
