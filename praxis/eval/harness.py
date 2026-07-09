@@ -14,12 +14,17 @@ class RunResult:
     model_dict: dict = field(default_factory=dict)
     turns: int = 0
     seconds: float = 0.0
+    firm: dict = None            # the people who sat in — with the memory they built
+
+
+def _make_session(interviewer_client, max_turns, coverage_target, live_firm):
+    return DiscoverySession(interviewer_client, max_turns=max_turns,
+                            coverage_target=coverage_target, live_firm=live_firm)
 
 
 async def run_scenario(interviewer_client, client_sim_client, scenario, clock, max_turns=25,
-                       coverage_target=0.8):
-    session = DiscoverySession(interviewer_client, max_turns=max_turns,
-                               coverage_target=coverage_target)
+                       coverage_target=0.8, live_firm=False):
+    session = _make_session(interviewer_client, max_turns, coverage_target, live_firm)
     start = clock()
     interviewer_line = session.opening_line()
     sim_history = []
@@ -35,6 +40,7 @@ async def run_scenario(interviewer_client, client_sim_client, scenario, clock, m
         model_dict=session.model.to_dict(),
         turns=session.turn,
         seconds=seconds,
+        firm=session.firm,
     )
 
 

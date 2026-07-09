@@ -77,20 +77,25 @@ REGISTRY = [
          matches=lambda st: len(_steps(st)) == 0,
          focus=lambda st: ("No step is mapped yet. Ask them to name, in a few words, "
                            "the very first thing that happens when the work starts.")),
+    Play("probe_after_vague", "question", 60,
+         matches=lambda st: is_vague(st.last_answer) and len(_steps(st)) > 0,
+         focus=lambda st: ("Their last answer was vague. Ask them to walk you through the "
+                           "most recent actual time this happened, concretely, start to finish.")),
+    # BREADTH-FIRST: trace the whole spine to the end BEFORE drilling any step's details. This
+    # outranks facet-completion (75 > 70) so the interview walks the entire job — intake, core
+    # work, delivery, billing — instead of rat-holing on the first few steps and never reaching
+    # the middle (the failure that lost a photographer's whole editing/delivery half). Once the
+    # spine is fully chained, this stops matching and facet-completion fills in the details.
+    Play("trace_sequence", "question", 75,
+         matches=lambda st: len(_steps(st)) >= 1 and _sequence_count(st) < len(_steps(st)) - 1,
+         focus=lambda st: ("Ask what happens immediately after the most recently "
+                           "described step — keep moving FORWARD through their process.")),
     Play("complete_step_facets", "question", 70,
          matches=lambda st: _nonfriction_gap(st) is not None,
          focus=lambda st: (lambda g: f"For the step '{g[0].label}', find out: "
                            + ", ".join(_FACET_Q[f] for f in g[1])
                            + ". Ask one concrete question about it.")(_nonfriction_gap(st))),
-    Play("probe_after_vague", "question", 60,
-         matches=lambda st: is_vague(st.last_answer) and len(_steps(st)) > 0,
-         focus=lambda st: ("Their last answer was vague. Ask them to walk you through the "
-                           "most recent actual time this happened, concretely, start to finish.")),
-    Play("trace_sequence", "question", 40,
-         matches=lambda st: len(_steps(st)) >= 1 and _sequence_count(st) < len(_steps(st)) - 1,
-         focus=lambda st: ("Ask what happens immediately after the most recently "
-                           "described step.")),
-    # Below trace_sequence (40) on purpose: map the WHOLE workflow first, then probe pain,
+    # Below trace_sequence and facets on purpose: map the WHOLE workflow first, then probe pain,
     # so the interview doesn't fixate on one vivid friction and lose breadth. Synthesis mines
     # pain from the full transcript regardless.
     Play("surface_friction", "question", 30,

@@ -60,13 +60,16 @@ def derive_priority(effort, time_saved, risk):
     return "worth it"
 
 
-async def score_interventions(client, interventions):
+async def score_interventions(client, interventions, memory_text=""):
     if not interventions:
         return []
     iv_steps = {iv.step_label for iv in interventions}
-    result = await client.complete_json(BUSINESS_SYSTEM,
-                                        _serialize_interventions(interventions),
-                                        max_tokens=2048)
+    user = _serialize_interventions(interventions)
+    if memory_text:
+        user = ("WHAT YOU CAME TO UNDERSTAND SITTING IN ON THIS INTERVIEW (weigh how often "
+                "these happen and what an error costs THEM, from this):\n" + memory_text
+                + "\n\nINTERVENTIONS TO SCORE:\n" + user)
+    result = await client.complete_json(BUSINESS_SYSTEM, user, max_tokens=2048)
     out = []
     for a in (result.get("assessments", []) if isinstance(result, dict) else []):
         if not isinstance(a, dict):

@@ -16,6 +16,17 @@ def test_is_valid_step_label():
     assert is_valid_step_label("what do you file it in?") is False       # question
     assert is_valid_step_label("") is False
 
+
+def test_is_valid_step_label_rejects_non_activities():
+    # waits, pauses, passive states, and mistakes are not steps that move the work forward
+    assert is_valid_step_label("wait by notebook") is False
+    assert is_valid_step_label("wait for next call") is False
+    assert is_valid_step_label("hang up") is False
+    assert is_valid_step_label("mishear a model number") is False
+    assert is_valid_step_label("remember the parts list") is False
+    assert is_valid_step_label("cull images and edit") is True           # a real activity survives
+    assert is_valid_step_label("take customer cash") is True
+
 def test_is_vague():
     assert is_vague("uh, we do stuff") is True                 # <5 words
     assert is_vague("maybe we sort of handle it later somehow") is True  # hedge

@@ -97,40 +97,51 @@ async def test_transcript_starts_with_opening_line():
     assert s.history[0]["content"] == OPENING   # opener preserved at the front
 
 
-class _GateClient:
-    """Returns empty deltas, then a controllable completeness verdict, then a question."""
-    def __init__(self, complete_flag):
-        self.jsons = [{"deltas": []}, {"complete": complete_flag, "missing": "the end"}]
-        self.i = 0
-    async def complete_json(self, system, user, **kw):
-        r = self.jsons[self.i] if self.i < len(self.jsons) else {"deltas": []}
-        self.i += 1
-        return r
-    async def complete(self, system, messages, **kw):
-        return "what happens at the very end?"
+from praxis.arc import REQUIRED
 
 
 @pytest.mark.asyncio
-async def test_completeness_gate_keeps_going_when_incomplete():
-    s = DiscoverySession(_GateClient(False), min_steps=2, saturation_gap=0, coverage_target=0.8, live_firm=False)
-    for lbl in ("one", "two"):
-        _satisfied_step(s.model, lbl)
-    s.turn, s.last_new_step_turn = 4, 0          # will be saturated after this turn
-    reply = await s.submit("more info")
-    assert reply != CLOSING                       # saturated but NOT the whole job -> keep going
-    assert s._closed is False
-    assert s.completeness_extensions == 1
-
-
-@pytest.mark.asyncio
-async def test_completeness_gate_closes_when_whole_job_mapped():
-    s = DiscoverySession(_GateClient(True), min_steps=2, saturation_gap=0, coverage_target=0.8, live_firm=False)
+async def test_saturated_but_arc_not_traversed_forces_terminal_probe_not_close():
+    # Front is saturated, but we've never asked how the job ends -> must NOT conclude; instead it
+    # forces a terminal probe and keeps going.
+    s = DiscoverySession(ScriptedClient([]), min_steps=2, saturation_gap=0, coverage_target=0.8,
+                         live_firm=False)
     for lbl in ("one", "two"):
         _satisfied_step(s.model, lbl)
     s.turn, s.last_new_step_turn = 4, 0
     reply = await s.submit("more info")
-    assert reply == CLOSING                       # saturated AND complete -> conclude
+    assert reply != CLOSING                       # saturated but arc not walked -> keep going
+    assert s._closed is False
+    assert len(s.arc_asked) == 1                   # a terminal probe was forced
+
+
+@pytest.mark.asyncio
+async def test_closes_only_once_arc_fully_traversed():
+    s = DiscoverySession(ScriptedClient([]), min_steps=2, saturation_gap=0, coverage_target=0.8,
+                         live_firm=False)
+    for lbl in ("one", "two"):
+        _satisfied_step(s.model, lbl)
+    s.arc_asked = set(REQUIRED)                    # pretend every terminal probe was already asked
+    s.turn, s.last_new_step_turn = 4, 0
+    reply = await s.submit("more info")
+    assert reply == CLOSING                        # saturated AND whole arc mapped -> conclude
     assert s.is_intake_complete() is True
+
+
+@pytest.mark.asyncio
+async def test_all_terminal_probes_get_asked_before_closing():
+    # Even saturated from the start, the session forces EACH required probe before it may close.
+    s = DiscoverySession(ScriptedClient([]), min_steps=2, saturation_gap=0, coverage_target=0.8,
+                         live_firm=False)
+    for lbl in ("one", "two"):
+        _satisfied_step(s.model, lbl)
+    s.turn, s.last_new_step_turn = 4, 0
+    for _ in range(len(REQUIRED)):
+        reply = await s.submit("still going")
+        assert reply != CLOSING                    # each turn forces the next probe, never closes
+    assert s.arc_asked == set(REQUIRED)            # all terminal probes asked
+    reply = await s.submit("done")
+    assert reply == CLOSING                        # now the arc is traversed -> conclude
 
 
 class _FirmClient:
