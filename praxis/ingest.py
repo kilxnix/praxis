@@ -16,6 +16,8 @@ offline principle) — plain transcription only.
     pip install rapidocr-onnxruntime                          (images)
 """
 import os
+import shutil
+import tempfile
 
 DOC_EXTS = {".txt", ".md", ".markdown", ".pdf", ".docx"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
@@ -76,6 +78,28 @@ def ocr_image(path):
     return "\n".join(line[1] for line in result if len(line) > 1 and line[1])
 
 
+def _ensure_ffmpeg():
+    """WhisperX loads audio by shelling out to `ffmpeg`. If none is on PATH, fall back to the
+    binary bundled by imageio-ffmpeg — copied once to a cache dir as `ffmpeg` and prepended to
+    PATH so the subprocess call resolves. Keeps audio working out of the box, no manual install."""
+    if shutil.which("ffmpeg"):
+        return
+    try:
+        import imageio_ffmpeg
+    except ImportError as e:
+        raise RuntimeError(
+            "Audio ingest needs ffmpeg. Install it on PATH, or:\n"
+            "    pip install imageio-ffmpeg\n"
+        ) from e
+    cache = os.path.join(tempfile.gettempdir(), "praxis_ffmpeg")
+    os.makedirs(cache, exist_ok=True)
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    dst = os.path.join(cache, name)
+    if not os.path.exists(dst):
+        shutil.copy2(imageio_ffmpeg.get_ffmpeg_exe(), dst)
+    os.environ["PATH"] = cache + os.pathsep + os.environ.get("PATH", "")
+
+
 def transcribe(path):
     """Transcribe an audio file to text with WhisperX (local, offline, no diarization).
     Raises a clear RuntimeError if WhisperX/ffmpeg aren't installed, so the app can tell the
@@ -84,10 +108,11 @@ def transcribe(path):
         import whisperx
     except ImportError as e:
         raise RuntimeError(
-            "Audio ingest needs WhisperX. Install it (and ffmpeg on PATH):\n"
+            "Audio ingest needs WhisperX. Install it:\n"
             "    pip install whisperx\n"
-            "then retry. Or upload a text/PDF/DOCX document instead."
+            "then retry. Or upload a text/PDF/DOCX/image instead."
         ) from e
+    _ensure_ffmpeg()
     model = whisperx.load_model(WHISPER_MODEL, WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
     audio = whisperx.load_audio(path)
     result = model.transcribe(audio)
