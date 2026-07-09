@@ -21,12 +21,11 @@ def _chunk(text, max_chunks=30):
     return paras[:max_chunks]
 
 
-async def ingest_text_to_model(client, text, firm=None, max_chunks=30):
-    """Build a WorkflowModel from ingested material (a transcript or document) with NO live
-    interviewer — chunk it, run the same grounded extraction over each piece, and consolidate.
-    If a firm is passed, each member also watches the material so they still form a real
-    understanding of the business. Returns (model, transcript)."""
-    from praxis.analyst import serialize_map   # local import: avoid a module import cycle
+async def ingest_text_to_model(client, text, max_chunks=30):
+    """Build a WorkflowModel from ingested material (documents, transcripts, OCR'd photos) with
+    NO live interviewer — chunk it, run the same grounded extraction over each piece, and
+    consolidate. The firm STUDIES the resulting transcript once at convene (run_firm), not
+    per-chunk, so this stays cheap. Returns (model, transcript)."""
     model = WorkflowModel()
     transcript = []
     chunks = _chunk(text, max_chunks)
@@ -34,10 +33,6 @@ async def ingest_text_to_model(client, text, firm=None, max_chunks=30):
         transcript.append({"role": "user", "content": chunk})
         deltas = await extract_deltas(client, transcript, chunk, i)
         apply_deltas(model, deltas, i)
-        if firm:
-            for agent in firm.values():
-                await agent.observe(f"From the business's own materials:\n{chunk}",
-                                    serialize_map(model), i)
         if i % 3 == 0:
             await consolidate_steps(client, model)
     await consolidate_steps(client, model)
@@ -47,8 +42,15 @@ async def ingest_text_to_model(client, text, firm=None, max_chunks=30):
 async def extract_deltas(client, history, latest_msg, turn, focus=None):
     result = await client.complete_json(P.EXTRACTION_SYSTEM,
                                         P.build_extraction_user(history, latest_msg, focus))
+    # The local model sometimes returns a bare list of deltas instead of {"deltas": [...]}.
+    if isinstance(result, dict):
+        raw = result.get("deltas", [])
+    elif isinstance(result, list):
+        raw = result
+    else:
+        raw = []
     out = []
-    for d in result.get("deltas", []):
+    for d in raw:
         if not isinstance(d, dict):
             continue
         q = d.get("quote")

@@ -78,3 +78,23 @@ async def test_extract_tolerates_non_dict_and_unhashable_fields():
     ]}
     deltas = await extract_deltas(FakeClient(payload), [], "msg", turn=1)
     assert [d["label"] for d in deltas] == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_extract_deltas_handles_bare_list_result():
+    # the local model sometimes returns a bare list instead of {"deltas":[...]} — don't crash
+    class BareListClient:
+        async def complete_json(self, system, user, **kw):
+            return [{"op": "add_node", "node_type": "step", "label": "take order",
+                     "quote": "I take the order"}]
+    out = await extract_deltas(BareListClient(), [], "I take the order", 1)
+    assert len(out) == 1 and out[0]["label"] == "take order"
+
+
+@pytest.mark.asyncio
+async def test_extract_deltas_handles_nonsense_result():
+    class JunkClient:
+        async def complete_json(self, system, user, **kw):
+            return "not json at all"
+    out = await extract_deltas(JunkClient(), [], "hi", 1)
+    assert out == []

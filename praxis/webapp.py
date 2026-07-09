@@ -64,7 +64,7 @@ async def ingest(name: str = Form("engagement"), files: list[UploadFile] = File(
         client = OllamaClient()
         try:
             firm = assemble_firm(client)
-            model, transcript = await ingest_text_to_model(client, text, firm=firm)
+            model, transcript = await ingest_text_to_model(client, text)
             state = await finalize(client, model, firm, transcript, name)
         finally:
             await client.close()
