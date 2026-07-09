@@ -145,3 +145,42 @@ async def test_find_opportunities_dedups_same_step():
     opps = await find_opportunities(DuplicateOppsClient(payload), m)
     assert len(opps) == 1                        # same step can't be flagged twice
     assert opps[0].description == "first"
+
+
+@pytest.mark.asyncio
+async def test_parse_resolves_reworded_step_labels():
+    # The model echoes labels with different case/punctuation or shortened — canonical +
+    # containment matching must map them back instead of silently discarding (the bug that
+    # shipped an EMPTY deliverable: 0 opportunities three retries in a row on an 8-step map).
+    payload = {"opportunities": [
+        {"step_label": "Copy Leads To Spreadsheet!", "capability": "automate",
+         "description": "d", "evidence": "I copy each lead into the sheet by hand"}]}
+    opps = await find_opportunities(FakeClient(payload), _map())
+    assert len(opps) == 1
+    assert opps[0].step_label == "copy leads to spreadsheet"      # mapped to the REAL step
+
+
+@pytest.mark.asyncio
+async def test_parse_resolves_unique_containment_label():
+    from praxis.analyst import _resolve_step_label
+    steps = {"cross-reference records against spreadsheet", "enter billing codes by hand"}
+    from praxis.discovery_signals import canonical_label
+    by_canon = {canonical_label(s): s for s in steps}
+    # shortened echo maps to the unique containing step
+    assert _resolve_step_label("cross-reference records", steps, by_canon) \
+        == "cross-reference records against spreadsheet"
+    # ambiguous or unknown echoes stay unresolved (never guess between candidates)
+    assert _resolve_step_label("totally different thing", steps, by_canon) is None
+
+
+def test_fallback_opportunities_builds_from_measured_burden():
+    from praxis.analyst import fallback_opportunities
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "enter billing codes by hand",
+               [Evidence("I enter every billing code by hand all day", 2)])
+    m.add_node(NodeType.STEP, "greet patients", [Evidence("I say hello", 1)])
+    out = fallback_opportunities(m, max_n=2)
+    assert len(out) == 2
+    assert out[0].step_label == "enter billing codes by hand"     # top burden first
+    assert out[0].severity == "high"
+    assert out[0].evidence == "I enter every billing code by hand all day"  # owner's own quote

@@ -5,7 +5,7 @@ the Architect for a redesign, and every action + hand-off is recorded on the eng
 
 Hardening: the content-gating stages retry on an empty (stochastic) LLM return."""
 from praxis.engagement import EngagementState
-from praxis.analyst import find_opportunities, apply_evidence_bar
+from praxis.analyst import find_opportunities, apply_evidence_bar, fallback_opportunities
 from praxis.architect import design_interventions, redesign_interventions
 from praxis.business_case import score_interventions
 from praxis.skeptic import review, ground_verdicts
@@ -111,6 +111,17 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
                      + "; ".join(f"{o.step_label} ({o.grounding})" for o in dropped),
                      consumed_from="analyst", count=len(dropped))
     if not opportunities:
+        # Owned floor: an empty Analyst return on a real map is a failure of the call, not a
+        # truth about the business — a client must never receive an empty plan. Build
+        # opportunities directly from the measured graph and say so in the record.
+        opportunities = fallback_opportunities(model)
+        state.opportunities = opportunities
+        state.record("analyst", "fallback_opportunities",
+                     f"analyst returned none on a real map — built {len(opportunities)} "
+                     "from measured burden instead",
+                     consumed_from="discovery", count=len(opportunities))
+    if not opportunities:
+        # Truly nothing (no evidenced steps at all) — only then may the plan be empty.
         state.deliverable = assemble_deliverable(model, [], [], [], [])
         state.record("principal", "assembled_deliverable", "no opportunities found")
         return state

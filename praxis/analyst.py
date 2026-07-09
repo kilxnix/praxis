@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass, replace
 from praxis.models import NodeType, EdgeType
 from praxis.grounding import measure_grounding, measure_burden, burden_severity
+from praxis.discovery_signals import canonical_label
 
 CAPABILITIES = [
     "automate moving data between tools (copy-paste, re-keying)",
@@ -102,12 +103,30 @@ def serialize_map(model) -> str:
     return "\n".join(lines)
 
 
+def _resolve_step_label(raw, step_labels, by_canon):
+    """Map the model's echo of a step label back to the REAL step. Exact, then canonical
+    (absorbs case/punctuation/articles), then unique containment ('cross-reference records' for
+    'cross-reference records against spreadsheet'). Exact string-matching here silently discarded
+    every opportunity when the model reworded a label — an 8-step map came back with 0
+    opportunities three retries in a row, shipping an EMPTY deliverable."""
+    if raw in step_labels:
+        return raw
+    c = canonical_label(raw or "")
+    if not c:
+        return None
+    if c in by_canon:
+        return by_canon[c]
+    contains = [s for k, s in by_canon.items() if c in k or k in c]
+    return contains[0] if len(contains) == 1 else None
+
+
 def _parse_opportunities(result, step_labels):
+    by_canon = {canonical_label(s): s for s in step_labels}
     out = []
     for o in (result.get("opportunities", []) if isinstance(result, dict) else []):
         if not isinstance(o, dict):
             continue
-        label = o.get("step_label")
+        label = _resolve_step_label(o.get("step_label"), step_labels, by_canon)
         evidence = (o.get("evidence") or "").strip()
         description = (o.get("description") or "").strip()
         severity = (o.get("severity") or "").strip().lower()
@@ -115,7 +134,7 @@ def _parse_opportunities(result, step_labels):
         grounding = (o.get("grounding") or "").strip().lower()
         grounding = grounding if grounding in GROUNDINGS else "recurring"
         # Anchor rule: must point at a real step and carry evidence + a description.
-        if label in step_labels and evidence and description:
+        if label and evidence and description:
             out.append(Opportunity(label, (o.get("capability") or "").strip(),
                                     description, evidence, severity, grounding))
     return out
@@ -189,6 +208,26 @@ async def find_opportunities(client, model, memory_text=""):
     return [replace(o, grounding=measure_grounding(o, model),
                     severity=burden_severity(measure_burden(o.step_label, model)))
             for o in ordered]
+
+
+def fallback_opportunities(model, max_n=4):
+    """Owned floor: the firm never ships an EMPTY plan while the map holds real, evidenced
+    steps. If the Analyst comes up empty (a stochastic/parse failure, not a truth about the
+    business), build opportunities directly from the graph — the top steps by MEASURED burden,
+    each anchored to the owner's own quote. The capability text is generic on purpose; the
+    Architect designs the specifics. Recorded transparently by the caller."""
+    scored = []
+    for s in model.nodes_of(NodeType.STEP):
+        if s.evidence:
+            scored.append((measure_burden(s.label, model), s))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    out = []
+    for b, s in scored[:max_n]:
+        opp = Opportunity(s.label, "remove the manual effort in this step",
+                          f"lift the manual burden of '{s.label}'",
+                          s.evidence[0].quote, burden_severity(b))
+        out.append(replace(opp, grounding=measure_grounding(opp, model)))
+    return out
 
 
 def passes_evidence_bar(opp):
