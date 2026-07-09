@@ -66,3 +66,50 @@ def test_assemble_firm_loads_persisted_minds(tmp_path):
     firm = assemble_firm(_Client(), minds_dir=str(tmp_path))
     assert any("sigh" in l.text for l in firm["analyst"].mind.lessons)   # seasoned on assembly
     assert firm["skeptic"].mind.lessons == []                            # unseasoned role is blank
+
+
+class _ConsolidatingClient:
+    """reflect -> one lesson; consolidate -> a distilled set of 4."""
+    async def complete_json(self, system, user, **kw):
+        s = system.lower()
+        if "consolidate" in s and "distill" in s:
+            return {"lessons": ["distilled lesson A", "distilled lesson B",
+                                "distilled lesson C", "distilled lesson D"]}
+        if "durable lessons" in s or "transferable lesson" in s:
+            return {"lessons": ["one more engagement lesson"]}
+        return {"beliefs": [{"note": "n", "grounds": "g"}]}
+    async def complete(self, system, messages, **kw):
+        return "q"
+
+
+@pytest.mark.asyncio
+async def test_mind_consolidates_when_it_grows_past_threshold(tmp_path):
+    mind = AgentMind("skeptic", path=str(tmp_path / "skeptic.json"))
+    for i in range(16):                                     # past CONSOLIDATE_OVER (15)
+        mind.add_lesson(f"lesson {i}", "old_job")
+    agent = FirmAgent(IDENT, _ConsolidatingClient(), mind)
+    agent.memory.remember("saw something", "quote", 1)      # so reflect() runs
+    await agent.reflect("new_job")
+    assert len(agent.mind.lessons) == 4                     # 17 -> distilled to 4
+    assert all(l.from_business == "consolidated" for l in agent.mind.lessons)
+    # and the consolidated mind persisted
+    reloaded = AgentMind.load("skeptic", str(tmp_path))
+    assert len(reloaded.lessons) == 4
+
+
+def test_replace_lessons_guards_against_wiping_the_mind():
+    mind = AgentMind("analyst")
+    for i in range(16):
+        mind.add_lesson(f"lesson {i}")
+    assert mind.replace_lessons([]) is False                       # empty -> refused
+    assert mind.replace_lessons(["a", "b"]) is False               # too few (<3) -> refused
+    assert mind.replace_lessons(["x"] * 20) is False               # not a reduction within cap
+    assert len(mind.lessons) == 16                                 # mind untouched by bad returns
+    assert mind.replace_lessons(["a", "b", "c", "d"]) is True      # a real distillation lands
+
+
+def test_mind_below_threshold_does_not_consolidate():
+    mind = AgentMind("architect")
+    for i in range(5):
+        mind.add_lesson(f"lesson {i}")
+    assert mind.needs_consolidation() is False

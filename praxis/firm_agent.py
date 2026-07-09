@@ -72,6 +72,23 @@ class AgentMind:
         if text:
             self.lessons.append(Lesson(text, (from_business or "").strip()))
 
+    # Owned triggers for self-consolidation: WHEN to consolidate (count) and how sharp the
+    # result must be are ours; only the distillation text itself is the agent's own cognition.
+    CONSOLIDATE_OVER = 15   # a mind larger than this has started piling instead of sharpening
+    KEEP_AT_MOST = 10       # a consolidated mind is a sharp lens, not an archive
+
+    def needs_consolidation(self):
+        return len(self.lessons) > self.CONSOLIDATE_OVER
+
+    def replace_lessons(self, texts):
+        """Swap in a consolidated set — guarded so a bad LLM return can never wipe the mind:
+        the new set must be a real reduction and non-trivial, else the original is kept."""
+        texts = [t.strip() for t in texts if isinstance(t, str) and t.strip()]
+        if 3 <= len(texts) <= self.KEEP_AT_MOST and len(texts) < len(self.lessons):
+            self.lessons = [Lesson(t, "consolidated") for t in texts]
+            return True
+        return False
+
     def recall(self, limit=12):
         """The lessons this agent brings to a new business — most recent first, capped so the
         mind stays a sharp lens, not an ever-growing wall."""
@@ -256,8 +273,32 @@ class FirmAgent:
             if isinstance(lesson, str) and lesson.strip():
                 self.mind.add_lesson(lesson, business_label)
                 added += 1
+        # A real expert's judgment SHARPENS with experience — it doesn't just pile up. When the
+        # mind grows past the threshold, the agent consolidates its own lessons: merge overlaps,
+        # drop what stopped earning its place, keep the sharpest.
+        if self.mind.needs_consolidation():
+            await self.consolidate_mind()
         self.mind.save()
         return added
+
+    async def consolidate_mind(self):
+        """Distill the mind: the agent rewrites its own accumulated lessons into a sharper,
+        smaller set. The WHEN (count trigger) and the bounds (must reduce, never wipe) are owned;
+        only the distillation itself is the agent's cognition. Returns True if consolidated."""
+        system = (
+            self.identity.preamble() + "\n\n"
+            "Your accumulated lessons have grown into a pile. Consolidate them into your SHARPEST "
+            f"working judgment: merge lessons that say the same thing, drop ones that stopped "
+            f"earning their place or that a stronger lesson covers, and keep at most "
+            f"{self.mind.KEEP_AT_MOST}. Each kept lesson should be transferable judgment in your "
+            "own voice — not a fact about one business. Do not invent new lessons; only distill "
+            "what is there.\n\n"
+            "Return JSON {\"lessons\": [ \"<one distilled lesson>\" ] }."
+        )
+        user = "YOUR LESSONS TO CONSOLIDATE:\n" + "\n".join(f"- {l.text}" for l in self.mind.lessons)
+        result = await self.client.complete_json(system, user, max_tokens=700)
+        texts = result.get("lessons", []) if isinstance(result, dict) else []
+        return self.mind.replace_lessons(texts)
 
 
 # The firm as five real people. Names make them individuals; the voice gives each a point of
