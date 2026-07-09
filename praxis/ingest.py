@@ -1,0 +1,89 @@
+"""Ingestion — turn REAL material (documents, recordings) into text Discovery can map.
+
+Two kinds of source:
+- documents  (.txt .md .pdf .docx)  -> extracted text. Light, always available.
+- audio      (.wav .mp3 .m4a .flac) -> transcribed with WhisperX. WhisperX is a heavy, GPU-
+  leaning dependency (PyTorch + faster-whisper + ffmpeg), so its import is GUARDED: the app
+  runs without it and raises a clear, actionable error only if you actually feed it audio.
+
+Strictly offline: WhisperX runs the transcription model locally. We deliberately do NOT enable
+its speaker-diarization (that needs a gated HuggingFace model + token, which would break the
+offline principle) — plain transcription only.
+
+    pip install whisperx        # + install ffmpeg on PATH
+"""
+import os
+
+DOC_EXTS = {".txt", ".md", ".markdown", ".pdf", ".docx"}
+AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".mp4"}
+SUPPORTED_EXTS = DOC_EXTS | AUDIO_EXTS
+
+# Overridable via env so a user can pick a smaller/larger model without code changes.
+WHISPER_MODEL = os.environ.get("PRAXIS_WHISPER_MODEL", "base")
+WHISPER_DEVICE = os.environ.get("PRAXIS_WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE = os.environ.get("PRAXIS_WHISPER_COMPUTE", "int8")
+
+
+def _read_txt(path):
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def _read_pdf(path):
+    from pypdf import PdfReader
+    return "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
+
+
+def _read_docx(path):
+    import docx
+    return "\n".join(p.text for p in docx.Document(path).paragraphs)
+
+
+def extract_text(path):
+    """Text from a document. Raises ValueError on an unsupported extension."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".txt", ".md", ".markdown"):
+        return _read_txt(path)
+    if ext == ".pdf":
+        return _read_pdf(path)
+    if ext == ".docx":
+        return _read_docx(path)
+    raise ValueError(f"unsupported document type: {ext}")
+
+
+def transcribe(path):
+    """Transcribe an audio file to text with WhisperX (local, offline, no diarization).
+    Raises a clear RuntimeError if WhisperX/ffmpeg aren't installed, so the app can tell the
+    user exactly what to do instead of crashing obscurely."""
+    try:
+        import whisperx
+    except ImportError as e:
+        raise RuntimeError(
+            "Audio ingest needs WhisperX. Install it (and ffmpeg on PATH):\n"
+            "    pip install whisperx\n"
+            "then retry. Or upload a text/PDF/DOCX document instead."
+        ) from e
+    model = whisperx.load_model(WHISPER_MODEL, WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
+    audio = whisperx.load_audio(path)
+    result = model.transcribe(audio)
+    return " ".join(seg.get("text", "").strip() for seg in result.get("segments", [])).strip()
+
+
+def ingest_file(path):
+    """Text from any supported source — document extracted, audio transcribed."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in AUDIO_EXTS:
+        return transcribe(path)
+    if ext in DOC_EXTS:
+        return extract_text(path)
+    raise ValueError(f"unsupported file type: {ext} (supported: {sorted(SUPPORTED_EXTS)})")
+
+
+def ingest_files(paths):
+    """Combine several uploaded sources into one text blob, labelled per source."""
+    parts = []
+    for p in paths:
+        text = ingest_file(p).strip()
+        if text:
+            parts.append(f"[from {os.path.basename(p)}]\n{text}")
+    return "\n\n".join(parts)

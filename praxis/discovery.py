@@ -1,12 +1,47 @@
 """Discovery agent operations: extract grounded graph deltas from a client turn,
 apply them to the WorkflowModel, and ask the next gap-driven question."""
+import re
 from praxis.models import WorkflowModel, NodeType, EdgeType, Evidence
 from praxis import discovery_prompts as P
 from praxis.discovery_signals import canonical_label, is_valid_step_label
 from praxis.plays import InterviewState, select_play, focus_target
+from praxis.consolidate import consolidate_steps
 
 _VALID_NODE = {t.value for t in NodeType}
 _VALID_EDGE = {t.value for t in EdgeType}
+
+
+def _chunk(text, max_chunks=30):
+    """Split ingested material into map-able pieces. Prefer paragraphs; fall back to grouping
+    sentences so a wall-of-text still becomes several 'turns' the extractor can chew on."""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
+    if len(paras) < 3:
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text or "") if s.strip()]
+        paras = [" ".join(sents[i:i + 3]) for i in range(0, len(sents), 3)] or paras
+    return paras[:max_chunks]
+
+
+async def ingest_text_to_model(client, text, firm=None, max_chunks=30):
+    """Build a WorkflowModel from ingested material (a transcript or document) with NO live
+    interviewer — chunk it, run the same grounded extraction over each piece, and consolidate.
+    If a firm is passed, each member also watches the material so they still form a real
+    understanding of the business. Returns (model, transcript)."""
+    from praxis.analyst import serialize_map   # local import: avoid a module import cycle
+    model = WorkflowModel()
+    transcript = []
+    chunks = _chunk(text, max_chunks)
+    for i, chunk in enumerate(chunks, 1):
+        transcript.append({"role": "user", "content": chunk})
+        deltas = await extract_deltas(client, transcript, chunk, i)
+        apply_deltas(model, deltas, i)
+        if firm:
+            for agent in firm.values():
+                await agent.observe(f"From the business's own materials:\n{chunk}",
+                                    serialize_map(model), i)
+        if i % 3 == 0:
+            await consolidate_steps(client, model)
+    await consolidate_steps(client, model)
+    return model, transcript
 
 
 async def extract_deltas(client, history, latest_msg, turn, focus=None):

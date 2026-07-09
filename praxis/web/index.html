@@ -32,6 +32,11 @@
   .deliverable h3 { font-size:15px; margin:16px 0 2px; }
   .deliverable em { color:var(--dim); font-style:normal; font-size:13px; }
   .saved { color:var(--dim); font-size:13px; margin-top:10px; }
+  .ingest { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:16px; }
+  .ingest .or { color:var(--dim); text-align:center; font-size:13px; margin-bottom:10px; }
+  .ingest input[type=file] { color:var(--dim); margin-right:10px; }
+  .ingest .hint { color:var(--dim); font-size:12px; margin-top:10px; }
+  .ingest code { background:#0c0e12; padding:1px 6px; border-radius:5px; }
   .hidden { display:none; }
 </style>
 </head>
@@ -41,6 +46,14 @@
   <div class="setup" id="setup">
     <input type="text" id="name" placeholder="Business name (e.g. Maria's HVAC)" autofocus>
     <button id="startBtn">Start interview</button>
+  </div>
+  <div class="ingest" id="ingestBox">
+    <div class="or">— or ingest real materials —</div>
+    <input type="file" id="files" multiple
+           accept=".txt,.md,.pdf,.docx,.wav,.mp3,.m4a,.flac,.ogg,.mp4">
+    <button id="ingestBtn">Ingest &amp; build plan</button>
+    <div class="hint">Documents (.txt .md .pdf .docx) work now. Audio (.mp3 .wav …) needs WhisperX:
+      <code>pip install whisperx</code> + ffmpeg.</div>
   </div>
 
   <div id="chat"></div>
@@ -90,20 +103,38 @@ function connect(){
     const m = JSON.parse(ev.data);
     if(m.type==='bot') bubble(m.text,'bot');
     else if(m.type==='status') status(m.text);
-    else if(m.type==='deliverable'){
-      composer.classList.add('hidden');
-      const box=document.getElementById('deliverable'); box.innerHTML=md(m.markdown); box.classList.remove('hidden');
-      const s=document.getElementById('saved'); s.textContent='Saved to '+m.saved; s.classList.remove('hidden');
-      document.getElementById('againBtn').classList.remove('hidden');
-    }
+    else if(m.type==='deliverable'){ composer.classList.add('hidden'); showDeliverable(m); }
   };
+}
+
+function showDeliverable(m){
+  const box=document.getElementById('deliverable'); box.innerHTML=md(m.markdown); box.classList.remove('hidden');
+  const s=document.getElementById('saved'); s.textContent='Saved to '+m.saved; s.classList.remove('hidden');
+  document.getElementById('againBtn').classList.remove('hidden');
 }
 
 document.getElementById('startBtn').onclick = () => {
   const name = nameEl.value.trim(); if(!name) { nameEl.focus(); return; }
   connect();
   ws.onopen = () => ws.send(JSON.stringify({type:'start', name}));
-  setup.classList.add('hidden'); composer.classList.remove('hidden'); answer.focus();
+  setup.classList.add('hidden'); document.getElementById('ingestBox').classList.add('hidden');
+  composer.classList.remove('hidden'); answer.focus();
+};
+
+document.getElementById('ingestBtn').onclick = async () => {
+  const name = nameEl.value.trim() || 'engagement';
+  const files = document.getElementById('files').files;
+  if(!files.length){ document.getElementById('files').focus(); return; }
+  setup.classList.add('hidden'); document.getElementById('ingestBox').classList.add('hidden');
+  status('Ingesting your materials and building the plan on the local model — give it a minute…');
+  const fd = new FormData(); fd.append('name', name);
+  for(const f of files) fd.append('files', f);
+  try{
+    const r = await fetch('/ingest', {method:'POST', body:fd});
+    const m = await r.json();
+    if(m.error){ status('⚠ '+m.error); document.getElementById('againBtn').classList.remove('hidden'); return; }
+    showDeliverable(m);
+  }catch(e){ status('⚠ '+e); document.getElementById('againBtn').classList.remove('hidden'); }
 };
 function send(){ const t=answer.value.trim(); if(!t||!ws) return; bubble(t,'me'); ws.send(JSON.stringify({type:'msg', text:t})); answer.value=''; }
 document.getElementById('sendBtn').onclick = send;
