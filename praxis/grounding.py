@@ -28,6 +28,17 @@ _FREQUENCY_MARKERS = (
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
+# Burden signals in the owner's OWN words — how much VOLUME or TIME a step costs them. This is
+# how we decide which work matters most WITHOUT asking the model: a step where they said
+# "thousands of photos" or "hours every night" outranks one they mentioned in passing. The
+# clerical-drudgery bias (flag admin, ignore the heavy core work) is exactly what this corrects.
+_QUANTITY = {"thousands", "thousand", "hundreds", "hundred", "dozens", "dozen", "many", "tons",
+             "loads", "stacks", "stack", "pile", "piles", "reams", "countless", "numerous",
+             "endless", "stack", "batches", "batch"}
+_DURATION = {"hours", "hour", "forever", "ages", "all", "whole", "entire"}
+_DURATION_PHRASES = ("all day", "all night", "all morning", "all evening", "half an hour",
+                     "an hour", "twenty minutes", "thirty minutes", "hours every")
+
 
 def _tokens(text):
     return set(_TOKEN.findall((text or "").lower()))
@@ -62,6 +73,38 @@ def substantiation(opp_evidence, owner_words):
 def has_frequency_language(quotes):
     text = " ".join(quotes).lower()
     return any(m in text for m in _FREQUENCY_MARKERS)
+
+
+def measure_burden(step_label, model):
+    """Score how much VOLUME/TIME a step costs the owner, measured from their own words — 0 (a
+    passing mention) up. Quantity words ("thousands"), duration ("hours", "twenty minutes"),
+    numbers, frequency, and returning to the step across turns all raise it. Owned, not asked."""
+    step_ev = _step_evidence(model, step_label)
+    turns = {t for _, t in step_ev}
+    quotes = [q for q, _ in step_ev]
+    text = " ".join(quotes).lower()
+    toks = _tokens(text)
+    score = 0
+    if toks & _QUANTITY:
+        score += 2
+    if (toks & _DURATION) or any(p in text for p in _DURATION_PHRASES):
+        score += 2
+    if re.search(r"\b\d{2,}\b", text):          # a written-out count like "20 minutes", "300"
+        score += 1
+    if any(m in text for m in _FREQUENCY_MARKERS):
+        score += 1
+    if len(turns) >= 2:
+        score += 1
+    return score
+
+
+def burden_severity(score):
+    """Map a measured burden score to the severity tier the deliverable ranks by."""
+    if score >= 2:
+        return "high"
+    if score == 1:
+        return "medium"
+    return "low"
 
 
 def measure_grounding(opportunity, model, min_substantiation=0.5):

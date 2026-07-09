@@ -55,14 +55,16 @@ async def test_find_opportunities_empty_map():
 
 
 @pytest.mark.asyncio
-async def test_find_opportunities_captures_grounding():
+async def test_find_opportunities_measures_grounding_and_severity_not_llm_labels():
+    # The model's self-reported severity/grounding are IGNORED; both are measured from the
+    # owner's words. "I copy each lead by hand" has no volume/time signal -> low burden.
     payload = {"opportunities": [
         {"step_label": "copy leads to spreadsheet", "capability": "automate",
-         "description": "d", "evidence": "I copy each lead by hand",
-         "severity": "high", "grounding": "one_off"}]}
+         "description": "d", "evidence": "I copy each lead into the sheet by hand",
+         "severity": "high", "grounding": "recurring"}]}
     opps = await find_opportunities(FakeClient(payload), _map())
-    assert opps[0].grounding == "one_off"
-    assert opps[0].severity == "high"
+    assert opps[0].grounding == "one_off"     # single plain mention, measured
+    assert opps[0].severity == "low"          # no burden words -> measured low, not the LLM's "high"
 
 
 def _opp(label, severity, grounding):

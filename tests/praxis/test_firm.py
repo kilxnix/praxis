@@ -52,7 +52,7 @@ class QueueClient:
 @pytest.mark.asyncio
 async def test_run_firm_produces_deliverable():
     m = WorkflowModel()
-    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy by hand", 1)])
+    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy every lead by hand all day, hundreds of them", 1)])
     responses = [
         {"opportunities": [{"step_label": "copy leads",
                             "capability": "automate manual data transfer between tools",
@@ -97,7 +97,7 @@ class RetryClient:
 @pytest.mark.asyncio
 async def test_run_firm_retries_empty_stage():
     m = WorkflowModel()
-    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy by hand", 1)])
+    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy every lead by hand all day, hundreds of them", 1)])
     state = await run_firm(RetryClient(), m)
     assert [e["step"] for e in state.deliverable["where_ai_fits"]] == ["copy leads"]  # recovered
 
@@ -134,7 +134,7 @@ class BounceClient:
 @pytest.mark.asyncio
 async def test_run_firm_bounces_rejected_to_architect():
     m = WorkflowModel()
-    m.add_node(NodeType.STEP, "copy leads", [Evidence("by hand", 1)])
+    m.add_node(NodeType.STEP, "copy leads", [Evidence("I copy every lead by hand all day, hundreds of them", 1)])
     state = await run_firm(BounceClient(), m, max_redo=1)
     actions = [e.action for e in state.log]
     assert "bounced_to_architect" in actions          # non-linear feedback happened

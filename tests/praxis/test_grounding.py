@@ -45,3 +45,24 @@ def test_substantiation_and_frequency_helpers():
     assert substantiation("blockchain synergy", {"i", "type", "invoices"}) == 0.0
     assert has_frequency_language(["I do this every night"]) is True
     assert has_frequency_language(["I did it once"]) is False
+
+
+from praxis.grounding import measure_burden, burden_severity
+
+
+def test_burden_high_for_volume_and_duration_words():
+    m = _model_with_step("edit photos", [("I cull thousands of images and edit for hours", 3)])
+    assert burden_severity(measure_burden("edit photos", m)) == "high"   # thousands + hours
+
+
+def test_burden_low_for_passing_mention():
+    m = _model_with_step("verify a date", [("I glance at the calendar", 2)])
+    assert burden_severity(measure_burden("verify a date", m)) == "low"
+
+
+def test_burden_ranks_core_over_admin():
+    m = _model_with_step("edit photos", [("thousands of photos take all night", 3)])
+    m.add_node.__self__  # (model already has the step)
+    from praxis.models import NodeType, Evidence
+    m.add_node(NodeType.STEP, "verify a date", [Evidence("I check the date once", 4)])
+    assert measure_burden("edit photos", m) > measure_burden("verify a date", m)

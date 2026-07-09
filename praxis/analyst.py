@@ -6,7 +6,7 @@ opportunities; it does not design the solution (Architect) or score them (Busine
 import json
 from dataclasses import dataclass, replace
 from praxis.models import NodeType, EdgeType
-from praxis.grounding import measure_grounding
+from praxis.grounding import measure_grounding, measure_burden, burden_severity
 
 CAPABILITIES = [
     "automate moving data between tools (copy-paste, re-keying)",
@@ -167,10 +167,28 @@ async def find_opportunities(client, model, memory_text=""):
             if isinstance(o, dict) and o.get("no_fit") and o.get("step_label") in step_labels:
                 examined.add(o.get("step_label"))
 
-    # OWNED JUDGMENT: the model does not get to decide how well-grounded an opportunity is — we
-    # MEASURE it from the owner's own recorded words and overwrite the model's self-label.
+    # OWNED PRIORITY: never let the Analyst dismiss the HIGH-BURDEN core work (the owner's own
+    # words flag heavy volume/time there) while it flags admin busywork. Force an opportunity for
+    # any high-burden step it skipped — no_fit is not allowed on the work that costs them most.
+    for _ in range(2):
+        heavy = [s.label for s in steps if s.label not in by_step
+                 and burden_severity(measure_burden(s.label, model)) == "high"]
+        if not heavy:
+            break
+        user = (prefix + "THE WORKFLOW MAP:\n" + map_text
+                + "\n\nThese steps cost the owner heavy VOLUME or TIME (their own words). There IS "
+                "a real AI opportunity in each — describe ONE per step, do NOT skip or dismiss "
+                "any:\n" + "\n".join(f"- {lbl}" for lbl in heavy))
+        result = await client.complete_json(ANALYST_SYSTEM, user, max_tokens=2048)
+        for o in _parse_opportunities(result, step_labels):
+            by_step.setdefault(o.step_label, o)
+
+    # OWNED JUDGMENT: the model decides neither grounding NOR priority. Measure both from the
+    # owner's own recorded words and overwrite the model's self-labels.
     ordered = [by_step[s.label] for s in steps if s.label in by_step]
-    return [replace(o, grounding=measure_grounding(o, model)) for o in ordered]
+    return [replace(o, grounding=measure_grounding(o, model),
+                    severity=burden_severity(measure_burden(o.step_label, model)))
+            for o in ordered]
 
 
 def passes_evidence_bar(opp):
