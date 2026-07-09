@@ -156,6 +156,32 @@ class FirmAgent:
                 added += len(self.memory.beliefs) - before
         return added
 
+    async def study(self, transcript, map_text, max_chars=6000):
+        """Read the WHOLE interview at once and form this agent's understanding — ONE call
+        instead of one-per-turn. Each agent forms their OWN perspective independently (the
+        analyst should read it differently from the skeptic); they converge later, when they
+        deliberate to determine the product. This is what replaced the expensive, isolating
+        per-turn observation."""
+        convo = "\n".join(f'{m["role"]}: {m["content"]}' for m in transcript)[-max_chars:]
+        system = (
+            self.identity.preamble() + "\n\n"
+            "You have just read the full interview with this business owner. From YOUR role, note "
+            "what you now understand about how they actually work — the real pains, the "
+            "constraints that matter for your job, where the biggest burden sits. Ground every "
+            "note in what they actually said. A few sharp notes beat many vague ones.\n\n"
+            "Return JSON {\"beliefs\": [ {\"note\": \"<what you understand, in your voice>\", "
+            "\"grounds\": \"<the words it rests on>\"} ] }."
+        )
+        user = (f"THE WORKFLOW MAPPED:\n{map_text or '(none)'}\n\nTHE FULL INTERVIEW:\n{convo}")
+        result = await self.client.complete_json(system, user, max_tokens=600)
+        added = 0
+        for b in (result.get("beliefs", []) if isinstance(result, dict) else []):
+            if isinstance(b, dict):
+                before = len(self.memory.beliefs)
+                self.memory.remember(b.get("note"), b.get("grounds"), 0)
+                added += len(self.memory.beliefs) - before
+        return added
+
     async def morph(self, business_label=""):
         """PROCESS everything ingested about this business into one coherent, first-person
         reasoning stance — reshape into the version of yourself THIS specific business needs.
@@ -273,6 +299,16 @@ def assemble_firm(client, minds_dir=DEFAULT_MINDS_DIR):
     engagement, loaded from disk. New firm the first time; seasoned after many."""
     return {ident.key: FirmAgent(ident, client, AgentMind.load(ident.key, minds_dir))
             for ident in ROSTER}
+
+
+async def study_firm(firm, transcript, map_text):
+    """Every member reads the full interview once and forms their own understanding. Independent
+    (diverse perspectives on the same material), so it's fine to run concurrently — it happens
+    ONCE at convene, not per turn, which is the big speed win over live observation."""
+    import asyncio
+    if not firm:
+        return
+    await asyncio.gather(*[a.study(transcript, map_text) for a in firm.values()])
 
 
 async def morph_firm(firm, business_label=""):

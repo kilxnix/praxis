@@ -10,7 +10,9 @@ from praxis.architect import design_interventions, redesign_interventions
 from praxis.business_case import score_interventions
 from praxis.skeptic import review
 from praxis.principal import assemble_deliverable
-from praxis.firm_agent import morph_firm
+from praxis.analyst import serialize_map
+from praxis.firm_agent import study_firm, morph_firm
+from praxis.models import WorkflowModel
 
 
 async def _attempt(fn, tries=3):
@@ -38,15 +40,20 @@ def _mem(firm, key):
     return text if text.strip() else ""
 
 
-async def run_firm(client, model, max_redo=1, firm=None, business_label=""):
-    """Run the firm; returns the full EngagementState (map, every stage's output,
-    the recorded log, and the deliverable). If `firm` is passed (the same people who sat in on
-    the interview), each agent first MORPHS to this business — synthesizing what they ingested
-    into a business-specific stance — then decides from that stance, not just the map."""
+async def run_firm(client, model, max_redo=1, firm=None, business_label="", transcript=None):
+    """Run the firm; returns the full EngagementState (map, every stage's output, the recorded
+    log, and the deliverable). If `firm` is passed, the members first STUDY the whole interview
+    (one pass each, at convene — not per turn), then MORPH to this business, then decide from
+    that understanding. The interview no longer costs 5 agent-calls every turn."""
     state = EngagementState(model_dict=model.to_dict())
     state.record("principal", "convened", "conducting the engagement over the workflow map")
 
     if firm:
+        if transcript:
+            await study_firm(firm, transcript, serialize_map(model))
+            state.record("principal", "firm_studied",
+                         "each member read the full interview and formed their own understanding",
+                         consumed_from="discovery")
         await morph_firm(firm, business_label)
         state.record("principal", "firm_morphed",
                      "each member synthesized this business into a stance to reason from",

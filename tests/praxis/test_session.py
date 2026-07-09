@@ -156,11 +156,23 @@ class _FirmClient:
 
 
 @pytest.mark.asyncio
-async def test_firm_memory_grows_during_interview():
+async def test_firm_assembled_but_does_not_observe_per_turn():
+    # The firm is assembled for the engagement, but it NO LONGER observes each turn (that was
+    # 5 LLM calls/turn and forced isolation). Understanding is formed later, at convene, via study.
     s = DiscoverySession(_FirmClient(), max_turns=5)      # live_firm on by default
     assert s.firm is not None
-    assert all(a.memory.is_empty() for a in s.firm.values())   # blank slate before the interview
+    assert all(a.memory.is_empty() for a in s.firm.values())
     await s.submit("I copy each lead into a spreadsheet by hand")
-    # every member watched the exchange and formed their own understanding of this business
-    assert all(not a.memory.is_empty() for a in s.firm.values())
-    assert "lead" in s.firm["skeptic"].memory.recall().lower()
+    assert all(a.memory.is_empty() for a in s.firm.values())   # no per-turn observation anymore
+
+
+@pytest.mark.asyncio
+async def test_firm_forms_understanding_by_studying_the_interview():
+    from praxis.firm_agent import assemble_firm, study_firm
+    firm = assemble_firm(_FirmClient())
+    transcript = [{"role": "assistant", "content": "walk me through it"},
+                  {"role": "user", "content": "I copy each lead into a spreadsheet by hand"}]
+    assert all(a.memory.is_empty() for a in firm.values())
+    await study_firm(firm, transcript, "step: copy leads")
+    assert all(not a.memory.is_empty() for a in firm.values())   # each formed its own read once
+    assert "lead" in firm["skeptic"].memory.recall().lower()

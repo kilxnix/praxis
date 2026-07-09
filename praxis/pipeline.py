@@ -16,7 +16,8 @@ async def finalize(interviewer_client, model, firm, transcript, business_label):
     """Take a finished Discovery map (+ the firm that sat in) through the diagnostic firm,
     synthesize the owner-facing deliverable, and let the firm learn. Shared by the simulated
     pipeline AND the live web app, so both produce identical output. Returns EngagementState."""
-    state = await run_firm(interviewer_client, model, firm=firm, business_label=business_label)
+    state = await run_firm(interviewer_client, model, firm=firm, business_label=business_label,
+                           transcript=transcript)
     state.transcript = transcript
     state.deliverable = await synthesize(interviewer_client, transcript, state.deliverable)
     state.record("principal", "synthesized",
