@@ -12,3 +12,4 @@ pytest-asyncio>=0.25.0
 pypdf
 python-docx
 # audio ingest (optional, heavy): pip install whisperx  + ffmpeg on PATH
+rapidocr-onnxruntime

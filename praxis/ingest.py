@@ -1,22 +1,28 @@
 """Ingestion — turn REAL material (documents, recordings) into text Discovery can map.
 
-Two kinds of source:
-- documents  (.txt .md .pdf .docx)  -> extracted text. Light, always available.
-- audio      (.wav .mp3 .m4a .flac) -> transcribed with WhisperX. WhisperX is a heavy, GPU-
+Three kinds of source:
+- documents  (.txt .md .pdf .docx)     -> extracted text. Light, always available.
+- images     (.png .jpg .jpeg .webp …) -> OCR'd with RapidOCR (offline, bundled models, no
+  external binary) — reads photos of forms, tickets, handwritten notes, whiteboards.
+- audio      (.wav .mp3 .m4a .flac …)  -> transcribed with WhisperX. WhisperX is a heavy, GPU-
   leaning dependency (PyTorch + faster-whisper + ffmpeg), so its import is GUARDED: the app
   runs without it and raises a clear, actionable error only if you actually feed it audio.
 
-Strictly offline: WhisperX runs the transcription model locally. We deliberately do NOT enable
-its speaker-diarization (that needs a gated HuggingFace model + token, which would break the
+Strictly offline: every model runs locally. We deliberately do NOT enable WhisperX
+speaker-diarization (that needs a gated HuggingFace model + token, which would break the
 offline principle) — plain transcription only.
 
-    pip install whisperx        # + install ffmpeg on PATH
+    pip install whisperx        # + install ffmpeg on PATH   (audio)
+    pip install rapidocr-onnxruntime                          (images)
 """
 import os
 
 DOC_EXTS = {".txt", ".md", ".markdown", ".pdf", ".docx"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".mp4"}
-SUPPORTED_EXTS = DOC_EXTS | AUDIO_EXTS
+SUPPORTED_EXTS = DOC_EXTS | IMAGE_EXTS | AUDIO_EXTS
+
+_OCR = None
 
 # Overridable via env so a user can pick a smaller/larger model without code changes.
 WHISPER_MODEL = os.environ.get("PRAXIS_WHISPER_MODEL", "base")
@@ -51,6 +57,25 @@ def extract_text(path):
     raise ValueError(f"unsupported document type: {ext}")
 
 
+def ocr_image(path):
+    """Read text out of an image (form, ticket, handwritten note, whiteboard) with RapidOCR —
+    offline, CPU, bundled models. Guarded import with a clear install message."""
+    global _OCR
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError as e:
+        raise RuntimeError(
+            "Image ingest needs RapidOCR:\n    pip install rapidocr-onnxruntime\n"
+            "then retry. Or upload a text/PDF/DOCX document instead."
+        ) from e
+    if _OCR is None:
+        _OCR = RapidOCR()      # load once, reuse
+    result, _ = _OCR(path)
+    if not result:
+        return ""
+    return "\n".join(line[1] for line in result if len(line) > 1 and line[1])
+
+
 def transcribe(path):
     """Transcribe an audio file to text with WhisperX (local, offline, no diarization).
     Raises a clear RuntimeError if WhisperX/ffmpeg aren't installed, so the app can tell the
@@ -70,10 +95,12 @@ def transcribe(path):
 
 
 def ingest_file(path):
-    """Text from any supported source — document extracted, audio transcribed."""
+    """Text from any supported source — document extracted, image OCR'd, audio transcribed."""
     ext = os.path.splitext(path)[1].lower()
     if ext in AUDIO_EXTS:
         return transcribe(path)
+    if ext in IMAGE_EXTS:
+        return ocr_image(path)
     if ext in DOC_EXTS:
         return extract_text(path)
     raise ValueError(f"unsupported file type: {ext} (supported: {sorted(SUPPORTED_EXTS)})")

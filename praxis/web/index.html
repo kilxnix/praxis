@@ -50,10 +50,10 @@
   <div class="ingest" id="ingestBox">
     <div class="or">— or ingest real materials —</div>
     <input type="file" id="files" multiple
-           accept=".txt,.md,.pdf,.docx,.wav,.mp3,.m4a,.flac,.ogg,.mp4">
+           accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.wav,.mp3,.m4a,.flac,.ogg,.mp4">
     <button id="ingestBtn">Ingest &amp; build plan</button>
-    <div class="hint">Documents (.txt .md .pdf .docx) work now. Audio (.mp3 .wav …) needs WhisperX:
-      <code>pip install whisperx</code> + ffmpeg.</div>
+    <div class="hint">Documents (.txt .md .pdf .docx) and images (.png .jpg — OCR of forms, tickets,
+      notes) work now. Audio (.mp3 .wav …) uses WhisperX (<code>pip install whisperx</code> + ffmpeg).</div>
   </div>
 
   <div id="chat"></div>
