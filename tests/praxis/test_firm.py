@@ -168,3 +168,52 @@ def test_assemble_ranks_by_severity_caps_and_filters_big_bets():
     later = [x["step"] for x in dv["bigger_or_later"]]
     assert "f" in later                                 # worthwhile big bet -> later
     assert "g" not in later and "g" not in steps        # low-value big bet dropped (a real 'no')
+
+
+class DeliberateClient:
+    """Architect proposes a bare design; skeptic challenges; architect refines to a strong one.
+    Route on the requested JSON shape (verdicts vs interventions), not on words that appear in
+    multiple prompts."""
+    def __init__(self):
+        self.reviews = 0
+    async def complete_json(self, system, user, **kw):
+        if '"verdicts"' in system:                      # skeptic review
+            self.reviews += 1
+            if self.reviews == 1:
+                return {"verdicts": [{"step_label": "edit thousands of photos",
+                                      "verdict": "weak", "objection": "does not actually cull for her"}]}
+            return {"verdicts": [{"step_label": "edit thousands of photos", "verdict": "solid", "objection": ""}]}
+        if "redesign" in system.lower():                # architect redesign after the challenge
+            return {"interventions": [{"step_label": "edit thousands of photos",
+                    "what_it_does": "auto-culls and pre-edits the batch, she reviews the keepers"}]}
+        return {"interventions": [{"step_label": "edit thousands of photos",
+                "what_it_does": "opens the editor for her"}]}   # bare first proposal
+
+
+@pytest.mark.asyncio
+async def test_deliberate_hard_refines_high_burden_step():
+    from praxis.firm import _deliberate_hard
+    from praxis.analyst import Opportunity
+    from praxis.engagement import EngagementState
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "edit thousands of photos",
+               [Evidence("I cull thousands of images and edit for hours every wedding", 1)])
+    opps = [Opportunity("edit thousands of photos", "vision", "auto-edit", "thousands of images")]
+    state = EngagementState(model_dict=m.to_dict())
+    strong = await _deliberate_hard(DeliberateClient(), m, opps, firm=None, state=state)
+    assert "edit thousands of photos" in strong                    # the hard step was deliberated
+    assert "auto-culls" in strong["edit thousands of photos"].what_it_does   # refined, not timid
+    assert any(e.action == "deliberated_with_skeptic" for e in state.log)    # collaboration recorded
+
+
+@pytest.mark.asyncio
+async def test_deliberate_hard_skips_low_burden_steps():
+    from praxis.firm import _deliberate_hard
+    from praxis.analyst import Opportunity
+    from praxis.engagement import EngagementState
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "verify a date", [Evidence("I glance at the calendar once", 1)])
+    opps = [Opportunity("verify a date", "check", "verify", "glance")]
+    state = EngagementState(model_dict=m.to_dict())
+    strong = await _deliberate_hard(DeliberateClient(), m, opps, firm=None, state=state)
+    assert strong == {}                                            # low burden -> no deliberation

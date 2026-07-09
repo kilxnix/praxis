@@ -12,7 +12,6 @@ from praxis.skeptic import review
 from praxis.principal import assemble_deliverable
 from praxis.analyst import serialize_map
 from praxis.firm_agent import study_firm, morph_firm
-from praxis.models import WorkflowModel
 
 
 async def _attempt(fn, tries=3):
@@ -38,6 +37,43 @@ def _mem(firm, key):
         return ""
     text = agent.understanding()
     return text if text.strip() else ""
+
+
+async def _deliberate_hard(client, model, opportunities, firm, state):
+    """Collaborative product-determination for the HIGH-BURDEN core work — the hard, high-value
+    steps the architect tends to fumble when designing alone (e.g. 'edit thousands of photos').
+    The architect and skeptic CONVERGE per opportunity: architect proposes -> skeptic challenges
+    -> architect refines addressing that specific challenge -> (skeptic re-checks). Each builds on
+    the other's reasoning instead of working in isolation. Returns {step_label: intervention}.
+    Bounded to a few hard opportunities so the collaboration doesn't explode the call budget."""
+    from praxis.grounding import measure_burden, burden_severity
+    hard = [o for o in opportunities
+            if burden_severity(measure_burden(o.step_label, model)) == "high"][:4]
+    strong = {}
+    for opp in hard:
+        proposed = await _attempt(
+            lambda: design_interventions(client, model, [opp], _mem(firm, "architect")))
+        if not proposed:
+            continue
+        iv = proposed[0]
+        # Skeptic challenges the proposal in the room (not after the fact).
+        verdicts = await review(client, [iv], [], _mem(firm, "skeptic"))
+        v = verdicts[0] if verdicts else None
+        rounds = 0
+        while v and v.verdict != "solid" and v.objection and rounds < 2:
+            revised = await _attempt(lambda: redesign_interventions(
+                client, model, [opp], {opp.step_label: v.objection}, _mem(firm, "architect")))
+            if not revised:
+                break
+            iv = revised[0]
+            state.record("architect", "deliberated_with_skeptic",
+                         f"refined '{opp.step_label}' after the skeptic's challenge: "
+                         f"{v.objection[:60]}", consumed_from="skeptic")
+            verdicts = await review(client, [iv], [], _mem(firm, "skeptic"))
+            v = verdicts[0] if verdicts else None
+            rounds += 1
+        strong[opp.step_label] = iv
+    return strong
 
 
 async def run_firm(client, model, max_redo=1, firm=None, business_label="", transcript=None):
@@ -79,11 +115,22 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
         state.record("principal", "assembled_deliverable", "no opportunities found")
         return state
 
+    # Collaborative pass FIRST on the hard, high-burden core work: architect + skeptic converge
+    # on those so they aren't fumbled by the architect designing alone.
+    strong = await _deliberate_hard(client, model, opportunities, firm, state) if firm else {}
+    if strong:
+        state.record("architect+skeptic", "deliberated",
+                     f"converged on {len(strong)} high-burden interventions together",
+                     consumed_from="analyst", count=len(strong))
+
     interventions = await _attempt(
         lambda: design_interventions(client, model, opportunities, _mem(firm, "architect")))
+    # The deliberated versions win over the one-shot batch designs for the hard steps.
+    interventions = [strong.get(iv.step_label, iv) for iv in interventions]
     state.interventions = interventions
     state.record("architect", "designed_interventions",
-                 f"designed {len(interventions)} interventions",
+                 f"designed {len(interventions)} interventions "
+                 f"({len(strong)} via architect+skeptic deliberation)",
                  consumed_from="analyst", count=len(interventions))
 
     assessments = await _attempt(
