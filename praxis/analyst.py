@@ -23,6 +23,10 @@ CAPABILITIES = [
     "schedule, coordinate, or sequence work and appointments",
     "guide someone through a complex procedure step by step",
     "translate or reformat content for a different audience",
+    "do the heavy first pass on high-volume skilled work — pre-sort/pre-select (cull), "
+    "pre-draft, or generate options — for a human to make the final call",
+    "generate first-draft creative or professional work (a proposal, an edit, a design "
+    "variation, a diagnosis shortlist) for the expert to refine and approve",
 ]
 
 ANALYST_SYSTEM = (
@@ -35,6 +39,17 @@ ANALYST_SYSTEM = (
     "calls benefits from transcription, one handling photos or site visits from image analysis, "
     "one juggling appointments from scheduling, one reviewing documents from checking for errors. "
     "Match THEIR real work to the best-fitting capability; don't default to data-entry.\n\n"
+    "CRITICAL — look at the CORE work, not just the paperwork. The most valuable opportunities "
+    "are usually in the skilled, high-volume work the business is actually built on — a "
+    "photographer culling THOUSANDS of images, a lawyer drafting a first contract, a shop "
+    "diagnosing a fault, a designer producing variations. Do NOT skip these because they are "
+    "'skilled' or 'their craft'. Skilled core work has two layers: a heavy MECHANICAL/VOLUME "
+    "layer (sorting 3,000 photos, typing a first draft, pre-screening) that AI can do as a first "
+    "pass, and a JUDGMENT layer (the final creative or professional call) the human keeps. The "
+    "opportunity is the volume layer — AI does the heavy first pass, the human makes the final "
+    "decision. A plan that only automates a business's back-office paperwork and never touches "
+    "the work they're actually paid for has MISSED the point. Actively find the core-work "
+    "opportunity for THIS business.\n\n"
     "For each, also rate SEVERITY — how big a pain this is TO THE OWNER, judged by how "
     "much they emphasized it, how often it comes up, and how much time/worry it causes: "
     "'high' (a top pain they clearly feel), 'medium', or 'low' (minor).\n\n"
