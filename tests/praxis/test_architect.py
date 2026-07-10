@@ -142,3 +142,36 @@ async def test_design_interventions_boldens_timid_design():
     assert len(ivs) == 1
     assert not is_timid(ivs[0])                       # the timid design was replaced
     assert "for you" in ivs[0].what_it_does
+
+
+@pytest.mark.asyncio
+async def test_design_batches_and_does_not_return_empty_on_many_opportunities():
+    # Many opportunities, each answered in a batch — must not truncate to zero.
+    from praxis.models import WorkflowModel, NodeType, Evidence
+    from praxis.analyst import Opportunity
+    m = WorkflowModel()
+    labels = [f"step {i}" for i in range(7)]
+    for l in labels:
+        m.add_node(NodeType.STEP, l, [Evidence(f"I do {l} a lot", 1)])
+    opps = [Opportunity(l, "cap", "desc", f"I do {l} a lot") for l in labels]
+
+    class BatchClient:
+        """Answers whatever batch it's asked, one intervention per opp in the prompt."""
+        async def complete_json(self, system, user, **kw):
+            asked = [l for l in labels if f"step '{l}'" in user]
+            return {"interventions": [
+                {"step_label": l, "what_it_does": f"auto-does {l} for you",
+                 "trigger": "t", "input_source": "i", "output_dest": "o",
+                 "success_criteria": "c"} for l in asked]}
+    ivs = await design_interventions(BatchClient(), m, opps)
+    assert len(ivs) == 7                         # every opportunity covered across batches
+    assert all(iv.is_buildable() for iv in ivs)
+
+
+def test_fallback_interventions_never_empty_when_opportunities_exist():
+    from praxis.architect import fallback_interventions
+    from praxis.analyst import Opportunity
+    opps = [Opportunity("cull images", "cap", "sort thousands of photos", "I cull thousands")]
+    ivs = fallback_interventions(opps)
+    assert len(ivs) == 1 and ivs[0].step_label == "cull images"
+    assert "cull images" in ivs[0].what_it_does

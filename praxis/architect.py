@@ -165,6 +165,9 @@ def _parse_interventions(result, allowed_steps):
     return out
 
 
+_DESIGN_BATCH = 3   # interventions per LLM call — small enough that the 9-field JSON never truncates
+
+
 def _memory_preamble(memory_text):
     if not memory_text:
         return ""
@@ -185,21 +188,37 @@ async def design_interventions(client, model, opportunities, memory_text=""):
         return []
     map_text = serialize_map(model)
     designed = {}      # step_label -> Intervention
-    pending = list(opportunities)
+    # Design in small BATCHES. Each intervention now carries the full buildable spec (9 fields),
+    # so asking for many at once truncates the JSON at the token limit and silently yields ZERO.
+    # Batching keeps every response within budget; the outer loop re-prompts for any still missing.
     for _ in range(3):
+        pending = [o for o in opportunities if o.step_label not in designed]
         if not pending:
             break
-        user = (_memory_preamble(memory_text) + "WORKFLOW MAP:\n" + map_text
-                + "\n\nOPPORTUNITIES (design one intervention for EACH — do not skip any):\n"
-                + _serialize_opps(pending))
-        result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=2048)
-        for iv in _parse_interventions(result, {o.step_label for o in pending}):
-            designed.setdefault(iv.step_label, iv)
-        pending = [o for o in opportunities if o.step_label not in designed]
+        for i in range(0, len(pending), _DESIGN_BATCH):
+            batch = pending[i:i + _DESIGN_BATCH]
+            user = (_memory_preamble(memory_text) + "WORKFLOW MAP:\n" + map_text
+                    + "\n\nOPPORTUNITIES (design one intervention for EACH — do not skip any):\n"
+                    + _serialize_opps(batch))
+            result = await client.complete_json(ARCHITECT_SYSTEM, user, max_tokens=3000)
+            for iv in _parse_interventions(result, {o.step_label for o in batch}):
+                designed.setdefault(iv.step_label, iv)
     # Preserve the Analyst's ordering, then force any TIMID design to be re-done boldly so the
     # Architect never ships a non-solution that leaves the owner doing the work.
     ordered = [designed[o.step_label] for o in opportunities if o.step_label in designed]
     return await _bolden_timid(client, map_text, ordered)
+
+
+def fallback_interventions(opportunities):
+    """Owned backstop: if the Architect returns nothing on real opportunities (a stochastic/
+    truncation failure, not a truth), build a bare intervention per opportunity from the
+    opportunity's own description so the plan is never silently empty. Not buildable (no spec) —
+    it will show as a recommendation but be marked not-yet-buildable in the SP2 handoff."""
+    return [Intervention(o.step_label,
+                         f"AI does the heavy work of '{o.step_label}' — {o.description}",
+                         "the step where this happens", "the data this step already uses",
+                         "less manual work; you keep the final call")
+            for o in opportunities]
 
 
 async def _bolden_timid(client, map_text, interventions, rounds=2):

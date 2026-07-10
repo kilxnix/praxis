@@ -6,7 +6,7 @@ the Architect for a redesign, and every action + hand-off is recorded on the eng
 Hardening: the content-gating stages retry on an empty (stochastic) LLM return."""
 from praxis.engagement import EngagementState
 from praxis.analyst import find_opportunities, apply_evidence_bar, fallback_opportunities
-from praxis.architect import design_interventions, redesign_interventions
+from praxis.architect import design_interventions, redesign_interventions, fallback_interventions
 from praxis.business_case import score_interventions
 from praxis.skeptic import review, ground_verdicts
 from praxis.principal import assemble_deliverable
@@ -138,6 +138,14 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
         lambda: design_interventions(client, model, opportunities, _mem(firm, "architect")))
     # The deliberated versions win over the one-shot batch designs for the hard steps.
     interventions = [strong.get(iv.step_label, iv) for iv in interventions]
+    # Backstop: opportunities existed but design came back empty (a truncation/stochastic
+    # failure) — never let that silently empty the plan. Build bare interventions to recommend.
+    if not interventions:
+        interventions = list(strong.values()) or fallback_interventions(opportunities)
+        state.record("architect", "fallback_interventions",
+                     f"design returned none on {len(opportunities)} real opportunities — "
+                     f"built {len(interventions)} bare interventions instead",
+                     consumed_from="analyst", count=len(interventions))
     state.interventions = interventions
     state.record("architect", "designed_interventions",
                  f"designed {len(interventions)} interventions "
