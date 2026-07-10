@@ -155,9 +155,11 @@ def _parse_opportunities(result, step_labels):
     return out
 
 
-async def find_opportunities(client, model, memory_text=""):
+async def find_opportunities(client, model, memory_text="", transcript=None, core_steps=None):
     """Return evidence-anchored Opportunity objects for a Discovery workflow map. If the analyst
-    sat in on the interview, they reason from what they came to understand (memory_text).
+    sat in on the interview, they reason from what they came to understand (memory_text). The
+    transcript, when given, lets burden be measured from the owner's full answers, so core work
+    whose volume signal didn't attach to its terse step label still scores its true burden.
 
     The Analyst on a local model is lazy — it returns 1 opportunity from a 7-step map full of
     obvious drudgery. So we structurally enforce coverage: after the first pass, re-prompt for
@@ -165,6 +167,7 @@ async def find_opportunities(client, model, memory_text=""):
     the same step can't be flagged twice."""
     steps = model.nodes_of(NodeType.STEP)
     step_labels = {s.label for s in steps}
+    core_steps = core_steps or set()
     if not step_labels:
         return []
     prefix = ""
@@ -204,24 +207,33 @@ async def find_opportunities(client, model, memory_text=""):
     # OWNED PRIORITY: never let the Analyst dismiss the HIGH-BURDEN core work (the owner's own
     # words flag heavy volume/time there) while it flags admin busywork. Force an opportunity for
     # any high-burden step it skipped — no_fit is not allowed on the work that costs them most.
+    # Core value work is forced too, even without volume words: a designer's "create drafts" is
+    # her core even though she said "3-4 directions", not "thousands". The analyst may NOT dismiss
+    # the work the business is actually paid for.
     for _ in range(2):
         heavy = [s.label for s in steps if s.label not in by_step
-                 and burden_severity(measure_burden(s.label, model)) == "high"]
+                 and (s.label in core_steps
+                      or burden_severity(measure_burden(s.label, model, transcript)) == "high")]
         if not heavy:
             break
         user = (prefix + "THE WORKFLOW MAP:\n" + map_text
-                + "\n\nThese steps cost the owner heavy VOLUME or TIME (their own words). There IS "
-                "a real AI opportunity in each — describe ONE per step, do NOT skip or dismiss "
-                "any:\n" + "\n".join(f"- {lbl}" for lbl in heavy))
+                + "\n\nThese are the owner's CORE work or heaviest steps — there IS a real AI "
+                "opportunity in each (AI does the heavy first pass, the human keeps the final "
+                "call). Describe ONE per step, do NOT skip or dismiss any:\n"
+                + "\n".join(f"- {lbl}" for lbl in heavy))
         result = await client.complete_json(ANALYST_SYSTEM, user, max_tokens=2048)
         for o in _parse_opportunities(result, step_labels):
             by_step.setdefault(o.step_label, o)
 
     # OWNED JUDGMENT: the model decides neither grounding NOR priority. Measure both from the
     # owner's own recorded words and overwrite the model's self-labels.
+    # Severity is MEASURED from burden — but a core-value step is floored to 'high' regardless of
+    # volume words, because it IS the business's main work (the owned structural signal from the
+    # core-work probe, not the LLM's opinion).
     ordered = [by_step[s.label] for s in steps if s.label in by_step]
     return [replace(o, grounding=measure_grounding(o, model),
-                    severity=burden_severity(measure_burden(o.step_label, model)))
+                    severity=("high" if o.step_label in core_steps
+                              else burden_severity(measure_burden(o.step_label, model, transcript))))
             for o in ordered]
 
 

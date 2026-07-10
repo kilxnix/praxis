@@ -111,7 +111,8 @@ async def ws(sock: WebSocket):
                                           "text": "Thanks — mapping your workflow and building the plan. "
                                                   "This runs the whole firm on the local model, so give it a minute…"})
                     state = await finalize(client, session.model, session.firm,
-                                           session.history, business, fixtures=session.fixtures)
+                                           session.history, business, fixtures=session.fixtures,
+                                           core_steps=session.core_step_labels)
                     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
                     out = f"engagements/{_slug(business)}_{stamp}"
                     save_engagement(state, out)

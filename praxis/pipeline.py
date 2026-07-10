@@ -12,13 +12,15 @@ from praxis.principal import synthesize
 from praxis.render import to_markdown
 
 
-async def finalize(interviewer_client, model, firm, transcript, business_label, fixtures=None):
+async def finalize(interviewer_client, model, firm, transcript, business_label, fixtures=None,
+                   core_steps=None):
     """Take a finished Discovery map (+ the firm that sat in) through the diagnostic firm,
     synthesize the owner-facing deliverable, and let the firm learn. Shared by the simulated
     pipeline AND the live web app, so both produce identical output. `fixtures` are the real
-    data samples (ground truth for SP2). Returns EngagementState."""
+    data samples (ground truth for SP2); `core_steps` are the business's core value work so the
+    firm prioritizes it. Returns EngagementState."""
     state = await run_firm(interviewer_client, model, firm=firm, business_label=business_label,
-                           transcript=transcript)
+                           transcript=transcript, core_steps=core_steps)
     state.transcript = transcript
     state.fixtures = list(fixtures or [])
     state.deliverable = await synthesize(interviewer_client, transcript, state.deliverable)
@@ -39,7 +41,8 @@ async def run_pipeline(interviewer_client, sim_client, scenario, clock, max_turn
                              max_turns=max_turns, coverage_target=1.0, live_firm=True)
     model = WorkflowModel.from_dict(run.model_dict)
     return await finalize(interviewer_client, model, run.firm, run.transcript, scenario.key,
-                          fixtures=getattr(run, "fixtures", None))
+                          fixtures=getattr(run, "fixtures", None),
+                          core_steps=getattr(run, "core_step_labels", None))
 
 
 def build_handoff(state):

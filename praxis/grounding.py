@@ -75,14 +75,34 @@ def has_frequency_language(quotes):
     return any(m in text for m in _FREQUENCY_MARKERS)
 
 
-def measure_burden(step_label, model):
+def _turn_context(transcript, turns):
+    """The FULL owner text of the conversation turns a step's evidence came from. The extracted
+    step label ('create digital drafts') is terse, but the owner's actual answer on that turn
+    ('3-4 directions per project, which takes many hours') carries the volume/time signal — so a
+    step's real burden lives in the turn, not the terse label. Owned: still the owner's own words,
+    just a wider window."""
+    if not transcript:
+        return ""
+    # transcript is [{role, content}]; discovery numbers turns from 1 as user messages arrive.
+    user_msgs = [m.get("content", "") for m in transcript if m.get("role") == "user"]
+    parts = []
+    for t in turns:
+        if 1 <= t <= len(user_msgs):
+            parts.append(user_msgs[t - 1])
+    return " ".join(parts)
+
+
+def measure_burden(step_label, model, transcript=None):
     """Score how much VOLUME/TIME a step costs the owner, measured from their own words — 0 (a
     passing mention) up. Quantity words ("thousands"), duration ("hours", "twenty minutes"),
-    numbers, frequency, and returning to the step across turns all raise it. Owned, not asked."""
+    numbers, frequency, and returning to the step across turns all raise it. Owned, not asked.
+    When the transcript is supplied, also reads the FULL owner answer on the step's turns, so a
+    core step whose volume signal didn't attach to its terse label ('create digital drafts' <-
+    '3-4 directions, many hours') still measures its true burden."""
     step_ev = _step_evidence(model, step_label)
     turns = {t for _, t in step_ev}
     quotes = [q for q, _ in step_ev]
-    text = " ".join(quotes).lower()
+    text = (" ".join(quotes) + " " + _turn_context(transcript, turns)).lower()
     toks = _tokens(text)
     score = 0
     if toks & _QUANTITY:

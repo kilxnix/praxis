@@ -66,3 +66,21 @@ def test_burden_ranks_core_over_admin():
     from praxis.models import NodeType, Evidence
     m.add_node(NodeType.STEP, "verify a date", [Evidence("I check the date once", 4)])
     assert measure_burden("edit photos", m) > measure_burden("verify a date", m)
+
+
+def test_burden_reads_the_interview_turn_not_just_the_terse_label():
+    # the step label is terse ("create digital drafts") and its evidence quote has no volume
+    # words, but the owner's full answer on that turn does — burden must read the turn.
+    from praxis.models import WorkflowModel, NodeType, Evidence
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "create digital drafts", [Evidence("I build the drafts", 3)])
+    # without the transcript, the terse evidence looks low-burden
+    assert burden_severity(measure_burden("create digital drafts", m)) == "low"
+    # the turn the evidence came from (user turn 3) carries the real signal
+    transcript = [
+        {"role": "assistant", "content": "q1"}, {"role": "user", "content": "clients email me"},
+        {"role": "assistant", "content": "q2"}, {"role": "user", "content": "I quote them"},
+        {"role": "assistant", "content": "q3"},
+        {"role": "user", "content": "I build the drafts — usually 3-4 directions per project, which takes many hours"},
+    ]
+    assert burden_severity(measure_burden("create digital drafts", m, transcript)) == "high"

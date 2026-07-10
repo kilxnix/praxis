@@ -5,7 +5,7 @@ import re
 from praxis.models import WorkflowModel, NodeType
 from praxis.coverage import analyze_coverage
 from praxis.discovery import extract_deltas, apply_deltas, next_question
-from praxis.consolidate import consolidate_steps
+from praxis.consolidate import consolidate_steps, prune_map_grain
 from praxis.arc import REQUIRED, ARC_PROBES, next_unasked_probe, arc_traversed
 from praxis.firm_agent import assemble_firm
 from praxis.engagement import Fixture
@@ -37,9 +37,12 @@ class DiscoverySession:
         self.turn = 0
         self.last_new_step_turn = 0
         self.pending_focus = None   # step+facet the last question targeted (intent-directed extraction)
+        self.probed_foci = set()    # "step|facet" already asked — never re-ask the same gap
         self._closed = False
         self.arc_asked = set()      # which required terminal probes we've asked (owned completeness)
         self.fixtures = []          # real data samples (ground truth for SP2's Verifier)
+        self.core_step_labels = set()       # steps that ARE the business's core value work
+        self._awaiting_core_answer = False  # the next answer replies to the core-work probe
 
     def opening_line(self):
         return OPENING
@@ -65,7 +68,12 @@ class DiscoverySession:
         self.history += [{"role": "user", "content": "(from our materials) " + m["content"]}
                          for m in transcript]
         self.last_new_step_turn = 0
-        q, self.pending_focus = await next_question(self.client, self.model, self.history)
+        q, self.pending_focus = await next_question(
+            self.client, self.model, self.history, probed_foci=self.probed_foci)
+        if self.pending_focus:
+            key = f"{self.pending_focus.get('step_label','').strip().lower()}|" \
+                  f"{self.pending_focus.get('facet','').strip().lower()}"
+            self.probed_foci.add(key)
         self.history.append({"role": "assistant", "content": q})
         return q
 
@@ -90,7 +98,8 @@ class DiscoverySession:
         return (self._saturated() or approaching_cap) and not arc_traversed(self.arc_asked)
 
     async def _close(self):
-        await consolidate_steps(self.client, self.model)   # final cleanup pass
+        await consolidate_steps(self.client, self.model)   # final cleanup + owned grain prune
+        prune_map_grain(self.model)                        # belt-and-suspenders before handoff
         self._closed = True
         self.history.append({"role": "assistant", "content": CLOSING})
         return CLOSING
@@ -105,11 +114,21 @@ class DiscoverySession:
         if _CONCRETE.search(client_message or ""):
             self.fixtures.append(Fixture(client_message.strip()[:2000], "interview"))
         before = len(self.model.nodes_of(NodeType.STEP))
+        labels_before = {s.label for s in self.model.nodes_of(NodeType.STEP)}
         deltas = await extract_deltas(self.client, self.history, client_message, self.turn,
                                       focus=self.pending_focus)
         apply_deltas(self.model, deltas, self.turn)
         if len(self.model.nodes_of(NodeType.STEP)) > before:
             self.last_new_step_turn = self.turn   # a new step surfaced this turn
+        # Structural CORE-WORK tagging: this answer is the owner's reply to "what's the main work
+        # you're paid for" — so the steps it surfaces ARE the core, whether or not they mention
+        # volume ("thousands"/"hours"). Tag them so the firm prioritizes the value work by its
+        # nature, not by luck of the owner's wording (measuring volume misses a designer's
+        # "3-4 directions" that still takes hours).
+        if self._awaiting_core_answer:
+            self.core_step_labels |= ({s.label for s in self.model.nodes_of(NodeType.STEP)}
+                                      - labels_before)
+            self._awaiting_core_answer = False
         if self.turn % 2 == 0:
             await consolidate_steps(self.client, self.model)
 
@@ -131,6 +150,7 @@ class DiscoverySession:
                 len(self.model.nodes_of(NodeType.STEP)) >= 2 and self.turn >= 2:
             _, override = ARC_PROBES[0]           # the core_work probe
             self.arc_asked.add("core_work")
+            self._awaiting_core_answer = True     # next answer's new steps ARE the core work
             self.last_new_step_turn = self.turn
         # Owned completeness: before concluding, the interview MUST have walked the workflow to
         # its terminal. If the front is saturated (or we're low on turns) but the arc isn't yet
@@ -143,7 +163,12 @@ class DiscoverySession:
         elif self._saturated() and arc_traversed(self.arc_asked):
             return await self._close()            # front done AND the whole arc mapped -> conclude
 
-        q, self.pending_focus = await next_question(self.client, self.model, self.history,
-                                                    focus_override=override)
+        q, self.pending_focus = await next_question(
+            self.client, self.model, self.history,
+            focus_override=override, probed_foci=self.probed_foci)
+        if self.pending_focus:
+            key = f"{self.pending_focus.get('step_label','').strip().lower()}|" \
+                  f"{self.pending_focus.get('facet','').strip().lower()}"
+            self.probed_foci.add(key)
         self.history.append({"role": "assistant", "content": q})
         return q

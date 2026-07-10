@@ -163,9 +163,11 @@ def test_ground_verdicts_keeps_invented_need_rejection_when_it_names_a_real_risk
     assert out[0].verdict == "reject"                # names a concrete risk (delete/wrong) -> stands
 
 
-# --- 8. High-burden core work never vanishes silently -----------------------------------------
+# --- 8. High-burden core work ships as a real design, not "needs scoping" --------------------
 
-def test_high_burden_timid_design_is_surfaced_not_silently_dropped():
+def test_high_burden_timid_design_is_replaced_with_shippable_recommendation():
+    """When the local model only produces a timid design for the biggest opportunity (culling),
+    the principal promotes an owned AI-first-pass design into the plan — buildable, not 'TBD'."""
     from praxis.architect import Intervention
     m = WorkflowModel()
     m.add_node(NodeType.STEP, "cull images", [Evidence("I cull thousands of images", 1)])
@@ -174,5 +176,40 @@ def test_high_burden_timid_design_is_surfaced_not_silently_dropped():
     scores = [Assessment("cull images", "low", "high", "low", "low", "quick win", "")]
     verds = [Verdict("cull images", "solid", "")]
     d = assemble_deliverable(m, opps, ivs, scores, verds)
-    assert not any(e["step"] == "cull images" for e in d["where_ai_fits"])   # timid -> not a rec
-    assert any(n["step"] == "cull images" for n in d["not_recommending"])    # but SURFACED, not vanished
+    rec = next(e for e in d["where_ai_fits"] if e["step"] == "cull images")
+    assert rec["buildable"] is True
+    assert "shortlist" in rec["what_it_does"].lower() or "first-pass" in rec["what_it_does"].lower() \
+        or "first pass" in rec["what_it_does"].lower() or "scores" in rec["what_it_does"].lower()
+    assert not any(n["step"] == "cull images" for n in d["not_recommending"])
+    assert "needs more scoping" not in " ".join(n.get("reason", "") for n in d["not_recommending"])
+
+
+# --- 9. Core value work is prioritized by its NATURE, not by volume words ---------------------
+
+@pytest.mark.asyncio
+async def test_core_step_is_high_severity_even_without_volume_words():
+    # 'create digital drafts' has no volume words -> would measure LOW burden. But it's tagged as
+    # core work (from the core-work probe), so it must come out HIGH severity and be flagged even
+    # if the Analyst tries to dismiss it.
+    from praxis.analyst import find_opportunities
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "create digital drafts", [Evidence("I build the drafts", 1)])
+    m.add_node(NodeType.STEP, "check inbox", [Evidence("I check email", 2)])
+
+    class DismissesCoreClient:
+        """Analyst flags only the admin step and marks the core as no_fit (the bias)."""
+        async def complete_json(self, system, user, **kw):
+            if "did NOT evaluate" in user or "CORE work or heaviest" in user:
+                return {"opportunities": [
+                    {"step_label": "create digital drafts", "capability": "generate",
+                     "description": "AI drafts first concepts", "evidence": "I build the drafts"}]}
+            return {"opportunities": [
+                {"step_label": "check inbox", "capability": "triage",
+                 "description": "sort mail", "evidence": "I check email"},
+                {"step_label": "create digital drafts", "no_fit": True}]}   # core wrongly dismissed
+
+    opps = await find_opportunities(DismissesCoreClient(), m,
+                                    core_steps={"create digital drafts"})
+    by = {o.step_label: o for o in opps}
+    assert "create digital drafts" in by                       # core rescued despite no_fit
+    assert by["create digital drafts"].severity == "high"      # floored high by its core nature

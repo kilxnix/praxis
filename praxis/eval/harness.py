@@ -16,6 +16,7 @@ class RunResult:
     seconds: float = 0.0
     firm: dict = None            # the people who sat in — with the memory they built
     fixtures: list = field(default_factory=list)   # real data samples (ground truth for SP2)
+    core_step_labels: set = field(default_factory=set)   # the business's core value work
 
 
 def _make_session(interviewer_client, max_turns, coverage_target, live_firm):
@@ -43,6 +44,7 @@ async def run_scenario(interviewer_client, client_sim_client, scenario, clock, m
         seconds=seconds,
         firm=session.firm,
         fixtures=session.fixtures,
+        core_step_labels=session.core_step_labels,
     )
 
 

@@ -93,7 +93,7 @@ def _is_invented_need_objection(objection):
     return any(m in o for m in _INVENTED_NEED_MARKERS) and not any(r in o for r in _RISK_MARKERS)
 
 
-def ground_verdicts(verdicts, model):
+def ground_verdicts(verdicts, model, transcript=None):
     """For a HIGH-burden step (measured drudgery the owner clearly wants gone), a reject/weak that
     rests on an invented PREFERENCE rather than a concrete risk is not valid — flip it to solid.
     This is the owned counterweight to the skeptic fabricating 'they value control' and killing
@@ -103,7 +103,7 @@ def ground_verdicts(verdicts, model):
     for v in verdicts:
         invalid = _is_preference_objection(v.objection) or _is_invented_need_objection(v.objection)
         if (v.verdict in ("reject", "weak") and invalid
-                and burden_severity(measure_burden(v.step_label, model)) == "high"):
+                and burden_severity(measure_burden(v.step_label, model, transcript)) == "high"):
             out.append(Verdict(v.step_label, "solid", ""))
         else:
             out.append(v)

@@ -6,7 +6,8 @@ the Architect for a redesign, and every action + hand-off is recorded on the eng
 Hardening: the content-gating stages retry on an empty (stochastic) LLM return."""
 from praxis.engagement import EngagementState
 from praxis.analyst import find_opportunities, apply_evidence_bar, fallback_opportunities
-from praxis.architect import design_interventions, redesign_interventions, fallback_interventions
+from praxis.architect import (design_interventions, redesign_interventions, fallback_interventions,
+                              ensure_shippable_designs, is_timid)
 from praxis.business_case import score_interventions
 from praxis.skeptic import review, ground_verdicts
 from praxis.principal import assemble_deliverable
@@ -39,7 +40,7 @@ def _mem(firm, key):
     return text if text.strip() else ""
 
 
-async def _deliberate_hard(client, model, opportunities, firm, state):
+async def _deliberate_hard(client, model, opportunities, firm, state, transcript=None):
     """Collaborative product-determination for the HIGH-BURDEN core work — the hard, high-value
     steps the architect tends to fumble when designing alone (e.g. 'edit thousands of photos').
     The architect and skeptic CONVERGE per opportunity: architect proposes -> skeptic challenges
@@ -48,7 +49,7 @@ async def _deliberate_hard(client, model, opportunities, firm, state):
     Bounded to a few hard opportunities so the collaboration doesn't explode the call budget."""
     from praxis.grounding import measure_burden, burden_severity
     hard = [o for o in opportunities
-            if burden_severity(measure_burden(o.step_label, model)) == "high"][:4]
+            if burden_severity(measure_burden(o.step_label, model, transcript)) == "high"][:4]
     strong = {}
     for opp in hard:
         proposed = await _attempt(
@@ -76,7 +77,8 @@ async def _deliberate_hard(client, model, opportunities, firm, state):
     return strong
 
 
-async def run_firm(client, model, max_redo=1, firm=None, business_label="", transcript=None):
+async def run_firm(client, model, max_redo=1, firm=None, business_label="", transcript=None,
+                   core_steps=None):
     """Run the firm; returns the full EngagementState (map, every stage's output, the recorded
     log, and the deliverable). If `firm` is passed, the members first STUDY the whole interview
     (one pass each, at convene — not per turn), then MORPH to this business, then decide from
@@ -95,7 +97,8 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
                      "each member synthesized this business into a stance to reason from",
                      consumed_from="discovery")
 
-    found = await _attempt(lambda: find_opportunities(client, model, _mem(firm, "analyst")))
+    found = await _attempt(
+        lambda: find_opportunities(client, model, _mem(firm, "analyst"), transcript, core_steps))
     # Evidence bar: keep only opportunities grounded in real, recurring pain (or a severe
     # one-off); drop capability-driven guesses BEFORE design, so weak ideas never become
     # recommendations. Recorded transparently — never a silent truncation.
@@ -128,7 +131,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
 
     # Collaborative pass FIRST on the hard, high-burden core work: architect + skeptic converge
     # on those so they aren't fumbled by the architect designing alone.
-    strong = await _deliberate_hard(client, model, opportunities, firm, state) if firm else {}
+    strong = await _deliberate_hard(client, model, opportunities, firm, state, transcript) if firm else {}
     if strong:
         state.record("architect+skeptic", "deliberated",
                      f"converged on {len(strong)} high-burden interventions together",
@@ -136,16 +139,41 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
 
     interventions = await _attempt(
         lambda: design_interventions(client, model, opportunities, _mem(firm, "architect")))
-    # The deliberated versions win over the one-shot batch designs for the hard steps.
-    interventions = [strong.get(iv.step_label, iv) for iv in interventions]
+    # The deliberated versions win over the one-shot batch designs for the hard steps — but only
+    # when they are themselves shippable. A timid deliberated design must not displace a solid one.
+    merged = []
+    by_batch = {iv.step_label: iv for iv in interventions}
+    for o in opportunities:
+        deliberated = strong.get(o.step_label)
+        batch = by_batch.get(o.step_label)
+        if deliberated and not is_timid(deliberated) and deliberated.is_buildable():
+            merged.append(deliberated)
+        elif batch is not None:
+            merged.append(batch)
+        elif deliberated is not None:
+            merged.append(deliberated)
+    interventions = merged
     # Backstop: opportunities existed but design came back empty (a truncation/stochastic
-    # failure) — never let that silently empty the plan. Build bare interventions to recommend.
+    # failure) — never let that silently empty the plan. Build shippable owned designs.
     if not interventions:
-        interventions = list(strong.values()) or fallback_interventions(opportunities)
+        interventions = list(strong.values()) or fallback_interventions(opportunities, model)
         state.record("architect", "fallback_interventions",
                      f"design returned none on {len(opportunities)} real opportunities — "
-                     f"built {len(interventions)} bare interventions instead",
+                     f"built {len(interventions)} owned interventions instead",
                      consumed_from="analyst", count=len(interventions))
+    # Structural guarantee: high-burden core work is never left timid or non-buildable after
+    # deliberation merge (the local model can still fumble the hard creative-core design).
+    before_labels = {iv.step_label: (iv.what_it_does, iv.is_buildable(), is_timid(iv))
+                     for iv in interventions}
+    interventions = ensure_shippable_designs(interventions, opportunities, model)
+    replaced = [iv.step_label for iv in interventions
+                if before_labels.get(iv.step_label) != (iv.what_it_does, iv.is_buildable(),
+                                                        is_timid(iv))]
+    if replaced:
+        state.record("architect", "owned_core_design",
+                     f"shippable first-pass design filled in for high-burden steps the model "
+                     f"couldn't complete: {replaced}",
+                     consumed_from="architect", count=len(replaced))
     state.interventions = interventions
     state.record("architect", "designed_interventions",
                  f"designed {len(interventions)} interventions "
@@ -160,7 +188,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
 
     verdicts = await _attempt(
         lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
-    verdicts = ground_verdicts(verdicts, model)   # overturn invented-preference rejections of core work
+    verdicts = ground_verdicts(verdicts, model, transcript)   # overturn invented-preference rejections of core work
     state.verdicts = verdicts
     ns, nw, nr = _tally(verdicts)
     state.record("skeptic", "reviewed", f"{ns} solid, {nw} weak, {nr} reject",
@@ -191,13 +219,17 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
         state.assessments = assessments
         verdicts = await _attempt(
             lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
-        verdicts = ground_verdicts(verdicts, model)
+        verdicts = ground_verdicts(verdicts, model, transcript)
         state.verdicts = verdicts
         ns, nw, nr = _tally(verdicts)
         state.record("skeptic", "re_reviewed",
                      f"after redesign: {ns} solid, {nw} weak, {nr} reject",
                      consumed_from="architect", count=len(verdicts))
         redo += 1
+
+    # After redesign bounces, re-assert shippable high-burden designs (a redesign can re-timid).
+    interventions = ensure_shippable_designs(interventions, opportunities, model)
+    state.interventions = interventions
 
     deliverable = assemble_deliverable(model, opportunities, interventions,
                                        assessments, verdicts)
