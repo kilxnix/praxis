@@ -139,3 +139,40 @@ def test_build_handoff_not_ready_without_fixtures():
         {"step": "x", "buildable": True, "trigger": "t", "input_source": "i",
          "output_dest": "o", "success_criteria": "c"}]}
     assert build_handoff(st)["ready_for_sp2"] is False       # no fixtures -> Airlock has no ground truth
+
+
+# --- 7. Skeptic can't reject grounded high-burden core work as "invented need" ----------------
+
+def test_ground_verdicts_overturns_invented_need_rejection_of_core_work():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "cull images in Lightroom",
+               [Evidence("I cull thousands of images for hours after every wedding", 3)])
+    vs = [Verdict("cull images in Lightroom", "reject",
+                  "the change invents a need for file management automation")]
+    out = ground_verdicts(vs, m)
+    assert out[0].verdict == "solid"                 # measured-high grounded core -> not "invented"
+
+
+def test_ground_verdicts_keeps_invented_need_rejection_when_it_names_a_real_risk():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "cull images in Lightroom",
+               [Evidence("I cull thousands of images for hours after every wedding", 3)])
+    vs = [Verdict("cull images in Lightroom", "reject",
+                  "invents a need but really the OCR could delete the wrong keeper photos")]
+    out = ground_verdicts(vs, m)
+    assert out[0].verdict == "reject"                # names a concrete risk (delete/wrong) -> stands
+
+
+# --- 8. High-burden core work never vanishes silently -----------------------------------------
+
+def test_high_burden_timid_design_is_surfaced_not_silently_dropped():
+    from praxis.architect import Intervention
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "cull images", [Evidence("I cull thousands of images", 1)])
+    opps = [Opportunity("cull images", "cull", "sort thousands", "I cull thousands", "high")]
+    ivs = [Intervention("cull images", "acts as a silent observer that does not delete", "x", "y", "z")]
+    scores = [Assessment("cull images", "low", "high", "low", "low", "quick win", "")]
+    verds = [Verdict("cull images", "solid", "")]
+    d = assemble_deliverable(m, opps, ivs, scores, verds)
+    assert not any(e["step"] == "cull images" for e in d["where_ai_fits"])   # timid -> not a rec
+    assert any(n["step"] == "cull images" for n in d["not_recommending"])    # but SURFACED, not vanished

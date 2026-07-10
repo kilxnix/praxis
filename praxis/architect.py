@@ -40,9 +40,14 @@ ARCHITECT_SYSTEM = (
     "For a CORE-WORK / creative opportunity (culling thousands of images, drafting a first "
     "contract, pre-diagnosing), design an 'AI FIRST PASS → HUMAN FINAL CALL' intervention: the "
     "AI does the heavy volume (pre-sorts, pre-drafts, shortlists) and the owner reviews and makes "
-    "the final creative or professional decision. That lifts the volume off them WITHOUT taking "
-    "away the judgment — do not design a timid 'it just watches' version, and do not refuse to "
-    "automate the core just because it is skilled.\n"
+    "the final creative or professional decision. It must ACTIVELY DO the work, not passively "
+    "watch. Concrete example for 'cull 3000 photos': the AI scores every image (sharp, eyes "
+    "open, composition, near-duplicates), auto-rejects the obvious throwaways, and hands her a "
+    "ranked shortlist of ~the best candidates to approve — she makes the final keeper call but "
+    "never scrolls all 3000. For 'draft a contract': the AI produces a complete first draft from "
+    "the intake details; the lawyer edits and approves. NEVER design a 'silent observer', a "
+    "'non-destructive monitor', or an 'it just flags' version — that is the timid non-solution "
+    "that fails. Do the heavy lifting; leave the judgment.\n"
     "Keep each intervention grounded and practical. Do NOT estimate ROI or rank them.\n\n"
     "CRITICAL: design an intervention for EVERY opportunity you are given — one per opportunity, "
     "no exceptions. Do NOT skip, drop, or decline one because it feels too aggressive, premature, "
@@ -123,6 +128,10 @@ _TIMID_MARKERS = (
     "does not auto", "does nothing", "empty document", "no automation", "you still",
     "still type", "still manually", "manually type", "you just sign", "only assists",
     "merely a", "does not change", "static and inert", "purely a placeholder",
+    # passive "it watches / flags but doesn't act" designs — the timid non-solution for core work
+    "silent observer", "silent, background", "background observer", "non-destructive",
+    "it just flags", "only flags", "merely flags", "passively monitor", "just watches",
+    "does not delete", "does not select",
 )
 
 

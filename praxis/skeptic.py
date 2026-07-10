@@ -74,9 +74,23 @@ _RISK_MARKERS = (
 )
 
 
+# "This invents a need the owner doesn't have" — a valid rejection for an UNGROUNDED idea, but
+# an INVALID one for a step whose burden is measured-high and grounding recurring: the need is
+# real, the skeptic is just resisting automating the core. Killed the photographer's culling.
+_INVENTED_NEED_MARKERS = (
+    "invents a need", "invent a need", "invented need", "manufactures a need", "no real need",
+    "unnecessary", "artificial need", "creates a need", "not needed", "no genuine need",
+)
+
+
 def _is_preference_objection(objection):
     o = (objection or "").lower()
     return any(m in o for m in _PREFERENCE_MARKERS) and not any(r in o for r in _RISK_MARKERS)
+
+
+def _is_invented_need_objection(objection):
+    o = (objection or "").lower()
+    return any(m in o for m in _INVENTED_NEED_MARKERS) and not any(r in o for r in _RISK_MARKERS)
 
 
 def ground_verdicts(verdicts, model):
@@ -87,7 +101,8 @@ def ground_verdicts(verdicts, model):
     from praxis.grounding import measure_burden, burden_severity
     out = []
     for v in verdicts:
-        if (v.verdict in ("reject", "weak") and _is_preference_objection(v.objection)
+        invalid = _is_preference_objection(v.objection) or _is_invented_need_objection(v.objection)
+        if (v.verdict in ("reject", "weak") and invalid
                 and burden_severity(measure_burden(v.step_label, model)) == "high"):
             out.append(Verdict(v.step_label, "solid", ""))
         else:

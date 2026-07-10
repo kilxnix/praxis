@@ -56,11 +56,16 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
     for iv in interventions:
         v = verdict_by.get(iv.step_label)
         a = score_by.get(iv.step_label)
-        # NO-OP GATE: an intervention that doesn't actually automate anything (inert, "you still
-        # type", empty document) is not a recommendation — it's a non-solution. It must never
-        # reach the plan, regardless of verdict, or SP2 would try to compile logic that disclaims
-        # itself. Drop it silently (it's not a real "we considered and declined" either).
+        # NO-OP GATE: an inert design ("you still type", empty document) is a non-solution and is
+        # dropped — SP2 can't compile logic that disclaims itself. BUT never let the owner's
+        # HIGH-burden core work vanish silently: if the biggest opportunity only got a weak
+        # design, surface it as "not recommending (design needs scoping)" instead of dropping it,
+        # so a photographer still SEES culling is her #1 opportunity even if the exact tool is TBD.
         if is_timid(iv):
+            if sev_by.get(iv.step_label) == "high":
+                not_recommending.append({"step": iv.step_label,
+                    "reason": "your biggest opportunity — the automation here needs more scoping "
+                              "before we recommend a specific tool"})
             continue
         # Only SOLID interventions are recommended. A weak verdict (a real, unresolved concern)
         # or a 'skip' is set aside with its reason — we never ship a recommendation that our
