@@ -13,9 +13,20 @@ ARCHITECT_SYSTEM = (
     "- where_it_plugs_in: which existing step or tool it hooks into\n"
     "- inputs_needed: what data or access it requires to work\n"
     "- changes_for_people: what changes for the person who does that step\n\n"
+    "Then give the BUILDABLE spec — the fields the automation is compiled from. Be concrete and "
+    "point at the owner's ACTUAL tools (the ones in the map), not invented ones:\n"
+    "- trigger: the exact EVENT that starts it (e.g. 'a photo is taken of the work order', "
+    "'the call ends', 'a new row lands in the sheet') — one clear event, not 'the user decides to'.\n"
+    "- input_source: WHERE the input data comes from — name the real tool/artifact it reads "
+    "(e.g. 'the phone camera photo', 'the QuickBooks invoice', 'the paper work order').\n"
+    "- output_dest: WHERE the result goes — name the real tool/artifact it writes "
+    "(e.g. 'the QuickBooks entry', 'a row in the master sheet', 'an SMS to the tech').\n"
+    "- success_criteria: how you'd KNOW it worked on one real case — a checkable statement "
+    "(e.g. 'the QuickBooks entry matches the parts and hours on the ticket, no field blank').\n\n"
     "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step from the opportunity>\", "
     "\"what_it_does\": \"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", "
-    "\"changes_for_people\": \"..\"} ] }.\n"
+    "\"changes_for_people\": \"..\", \"trigger\": \"..\", \"input_source\": \"..\", "
+    "\"output_dest\": \"..\", \"success_criteria\": \"..\"} ] }.\n"
     "Be specific to their actual tools. Address ONLY the one opportunity — do NOT invent "
     "adjacent features, approval workflows, or automation the owner never mentioned.\n\n"
     "MEANINGFULLY reduce the burden. Each intervention must actually LIFT the manual drudgery "
@@ -44,6 +55,18 @@ class Intervention:
     where_it_plugs_in: str
     inputs_needed: str
     changes_for_people: str
+    # The BUILDABLE spec SP2's Solutioner compiles into a BuildSpec IR. Defaults keep older
+    # positional construction working; the Architect fills them in.
+    trigger: str = ""            # the event that starts it
+    input_source: str = ""       # where the input data comes from (a real tool/artifact)
+    output_dest: str = ""        # where the result goes (a real tool/artifact)
+    success_criteria: str = ""   # a checkable statement of "it worked" — SP2's Verifier gate
+
+    def is_buildable(self):
+        """True only when the spec carries what a compiler needs: a trigger, an I/O contract,
+        and a way to verify correctness. Prose-only interventions are NOT buildable."""
+        return all(f.strip() for f in
+                   (self.trigger, self.input_source, self.output_dest, self.success_criteria))
 
 
 def _serialize_opps(opportunities):
@@ -59,11 +82,13 @@ REDESIGN_SYSTEM = (
     "objection. If the objection is that it forces the business to change how they work "
     "(an Ocean-Principle violation), propose a smaller, safer intervention that fits how "
     "they ACTUALLY operate — or a human-in-the-loop version.\n\n"
-    "For each, give what_it_does, where_it_plugs_in, inputs_needed, changes_for_people, "
-    "specific to their tools.\n\n"
+    "For each, give what_it_does, where_it_plugs_in, inputs_needed, changes_for_people, plus the "
+    "buildable spec: trigger, input_source, output_dest, success_criteria — specific to their "
+    "real tools.\n\n"
     "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step>\", \"what_it_does\": "
     "\"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", \"changes_for_people\": "
-    "\"..\"} ] }."
+    "\"..\", \"trigger\": \"..\", \"input_source\": \"..\", \"output_dest\": \"..\", "
+    "\"success_criteria\": \"..\"} ] }."
 )
 
 
@@ -77,9 +102,13 @@ BOLDEN_SYSTEM = (
     "JUDGMENT they value (the final decision, the diagnosis, who to serve): they review and "
     "approve, they don't re-do the work. Concrete, specific to their tools, genuinely less work "
     "for them.\n\n"
+    "Also give the buildable spec: trigger (the event that starts it), input_source (the real "
+    "tool/artifact the input comes from), output_dest (the real tool/artifact the result goes "
+    "to), success_criteria (a checkable 'it worked' statement).\n\n"
     "Return JSON {\"interventions\": [ {\"step_label\": \"<exact step>\", \"what_it_does\": "
     "\"..\", \"where_it_plugs_in\": \"..\", \"inputs_needed\": \"..\", \"changes_for_people\": "
-    "\"..\"} ] }."
+    "\"..\", \"trigger\": \"..\", \"input_source\": \"..\", \"output_dest\": \"..\", "
+    "\"success_criteria\": \"..\"} ] }."
 )
 
 # Phrases that betray a design which doesn't actually remove manual work — a non-solution.
@@ -122,6 +151,10 @@ def _parse_interventions(result, allowed_steps):
                 _text(iv.get("where_it_plugs_in")),
                 _text(iv.get("inputs_needed")),
                 _text(iv.get("changes_for_people")),
+                trigger=_text(iv.get("trigger")),
+                input_source=_text(iv.get("input_source")),
+                output_dest=_text(iv.get("output_dest")),
+                success_criteria=_text(iv.get("success_criteria")),
             ))
     return out
 

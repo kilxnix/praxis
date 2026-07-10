@@ -10,6 +10,7 @@ import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
 from praxis.discovery_signals import canonical_label
+from praxis.architect import is_timid
 
 START_HERE_CAP = 4   # a focused plan leads with a handful of high-impact items, not one, not ten
 
@@ -55,6 +56,12 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
     for iv in interventions:
         v = verdict_by.get(iv.step_label)
         a = score_by.get(iv.step_label)
+        # NO-OP GATE: an intervention that doesn't actually automate anything (inert, "you still
+        # type", empty document) is not a recommendation — it's a non-solution. It must never
+        # reach the plan, regardless of verdict, or SP2 would try to compile logic that disclaims
+        # itself. Drop it silently (it's not a real "we considered and declined" either).
+        if is_timid(iv):
+            continue
         # Only SOLID interventions are recommended. A weak verdict (a real, unresolved concern)
         # or a 'skip' is set aside with its reason — we never ship a recommendation that our
         # own review says makes things worse.
@@ -76,6 +83,12 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
             "effort": a.effort if a else "medium",
             "time_saved": a.time_saved if a else "medium",
             "risk": a.risk if a else "medium",
+            # the buildable spec SP2 compiles from — carried through to the deliverable/record
+            "trigger": iv.trigger,
+            "input_source": iv.input_source,
+            "output_dest": iv.output_dest,
+            "success_criteria": iv.success_criteria,
+            "buildable": iv.is_buildable(),
         })
 
     # STABLE selection — the fix for the narrow<->broad oscillation. Score every vetted item by

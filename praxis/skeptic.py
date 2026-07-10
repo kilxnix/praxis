@@ -62,6 +62,10 @@ _PREFERENCE_MARKERS = (
     "in control", "final authority", "surrender", "strict gate", "how they work", "control of",
     "their authority", "keep them in control", "removes control", "removing control",
     "manual verification", "manual authority", "wants control", "likes doing", "values doing",
+    # "the owner's hard gate / boundary / requirement for X" framings — a stated rule the owner
+    # supposedly imposes, not a concrete failure of the change. Killed the photographer's culling.
+    "hard gate", "gate requiring", "gate that", "their gate", "boundary", "temporal separation",
+    "strict separation", "sacred", "sacrosanct", "mandate", "insists on", "requires strict",
 )
 _RISK_MARKERS = (
     "fail", "error", "wrong", "break", "lose", "loses", "losing", "miss", "risk of", "inaccurate",

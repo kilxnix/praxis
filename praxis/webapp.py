@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from praxis.llm_client import OllamaClient
 from praxis.session import DiscoverySession
-from praxis.ingest import ingest_files, SUPPORTED_EXTS
+from praxis.ingest import ingest_files_with_fixtures, SUPPORTED_EXTS
 from praxis.pipeline import finalize, save_engagement
 from praxis.render import to_markdown
 
@@ -59,7 +59,7 @@ async def seed(name: str = Form("engagement"), files: list[UploadFile] = File(..
                 f.write(await up.read())
             tmp_paths.append(tp)
         try:
-            text = ingest_files(tmp_paths)      # documents extracted, images OCR'd, audio transcribed
+            text, fixtures = ingest_files_with_fixtures(tmp_paths)   # + real samples for SP2
         except RuntimeError as e:               # e.g. WhisperX not installed
             return JSONResponse({"error": str(e)}, status_code=400)
         if not text.strip():
@@ -67,7 +67,7 @@ async def seed(name: str = Form("engagement"), files: list[UploadFile] = File(..
 
         client = OllamaClient()                 # kept open; the WS that adopts this session closes it
         session = DiscoverySession(client, live_firm=True)
-        first_q = await session.seed_from_text(text)
+        first_q = await session.seed_from_text(text, fixtures=fixtures)
         token = secrets.token_hex(8)
         _SEEDED[token] = (session, name)
         return {"session_id": token, "opening": first_q}
@@ -111,7 +111,7 @@ async def ws(sock: WebSocket):
                                           "text": "Thanks — mapping your workflow and building the plan. "
                                                   "This runs the whole firm on the local model, so give it a minute…"})
                     state = await finalize(client, session.model, session.firm,
-                                           session.history, business)
+                                           session.history, business, fixtures=session.fixtures)
                     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
                     out = f"engagements/{_slug(business)}_{stamp}"
                     save_engagement(state, out)

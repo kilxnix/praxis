@@ -1,12 +1,18 @@
 """Drives one Discovery interview: client message -> grow graph -> next question,
 until coverage is high enough or the turn cap is hit. The session owns the stop
 condition (intake-completeness)."""
+import re
 from praxis.models import WorkflowModel, NodeType
 from praxis.coverage import analyze_coverage
 from praxis.discovery import extract_deltas, apply_deltas, next_question
 from praxis.consolidate import consolidate_steps
 from praxis.arc import REQUIRED, next_unasked_probe, arc_traversed
 from praxis.firm_agent import assemble_firm
+from praxis.engagement import Fixture
+
+# A concrete data sample worth keeping as ground truth: real numbers/IDs/money/quantities in
+# the owner's answer (a part number, mileage, an amount, a code). Deterministic, owned.
+_CONCRETE = re.compile(r"(?:#\s*\d|\$\s?\d|\b\d{2,}\b|\b\d+\s?(?:hrs?|hours|miles|units|%)\b)", re.I)
 
 OPENING = ("Thanks for making the time. In your own words, walk me through what you "
            "actually do day to day — start wherever the work starts.")
@@ -33,19 +39,24 @@ class DiscoverySession:
         self.pending_focus = None   # step+facet the last question targeted (intent-directed extraction)
         self._closed = False
         self.arc_asked = set()      # which required terminal probes we've asked (owned completeness)
+        self.fixtures = []          # real data samples (ground truth for SP2's Verifier)
 
     def opening_line(self):
         return OPENING
 
-    async def seed_from_text(self, text):
+    async def seed_from_text(self, text, fixtures=None):
         """SEED discovery from ingested materials (documents, OCR'd photos, transcripts) so the
         interview STARTS already knowing the business and spends its questions on the GAPS the
         materials didn't cover. Ingest increases what discovery starts with — it does not replace
-        the interview or the firm. Returns the first (gap-directed) question to ask.
+        the interview or the firm. `fixtures` is [(source, sample), ...] of the REAL material,
+        kept as ground truth for SP2. Returns the first (gap-directed) question to ask.
 
         After this, drive the session normally with submit(); the plays/arc engine sees what's
         already mapped and probes what's missing (parts-ordering, invoicing, the terminal, etc.)."""
         from praxis.discovery import ingest_text_to_model   # local import: avoid a cycle
+        for source, sample in (fixtures or []):
+            if sample and sample.strip():
+                self.fixtures.append(Fixture(sample.strip()[:2000], source))
         model, transcript = await ingest_text_to_model(self.client, text)
         self.model = model
         # Fold the materials in as prior context, then open with a gap question instead of the
@@ -89,6 +100,10 @@ class DiscoverySession:
             return CLOSING
         self.turn += 1
         self.history.append({"role": "user", "content": client_message})
+        # Capture concrete real data the owner gives (a part number, mileage, an amount) as a
+        # ground-truth fixture — the real I/O sample SP2's Verifier needs.
+        if _CONCRETE.search(client_message or ""):
+            self.fixtures.append(Fixture(client_message.strip()[:2000], "interview"))
         before = len(self.model.nodes_of(NodeType.STEP))
         deltas = await extract_deltas(self.client, self.history, client_message, self.turn,
                                       focus=self.pending_focus)

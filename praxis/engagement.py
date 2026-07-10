@@ -6,6 +6,17 @@ from dataclasses import dataclass, field, asdict
 
 
 @dataclass
+class Fixture:
+    """A REAL sample of the business's own data — a work order the owner read out, the OCR of an
+    actual ticket photo, a real part number. This is the ground truth SP2's Airlock Verifier
+    tests generated automation against; without it, SP2 would verify invented logic against
+    invented data. Captured from ingested materials and concrete interview examples."""
+    sample: str                 # the actual data/content
+    source: str                 # where it came from (a filename, or "interview")
+    step_label: str = ""        # the workflow step it exemplifies, if known
+
+
+@dataclass
 class Event:
     seq: int
     agent: str            # who acted: analyst / architect / business_case / skeptic / principal
@@ -25,6 +36,7 @@ class EngagementState:
     assessments: list = field(default_factory=list)     # Business-case
     verdicts: list = field(default_factory=list)        # Skeptic
     deliverable: dict = field(default_factory=dict)     # Principal
+    fixtures: list = field(default_factory=list)        # real I/O samples (ground truth for SP2)
     log: list = field(default_factory=list)             # list[Event]
 
     def record(self, agent, action, detail="", consumed_from="", count=0):
@@ -39,5 +51,6 @@ class EngagementState:
             "assessments": [asdict(a) for a in self.assessments],
             "verdicts": [asdict(v) for v in self.verdicts],
             "deliverable": self.deliverable,
+            "fixtures": [asdict(f) for f in self.fixtures],
             "log": [asdict(e) for e in self.log],
         }

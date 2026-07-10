@@ -139,3 +139,17 @@ def ingest_files(paths):
         if text:
             parts.append(f"[from {os.path.basename(p)}]\n{text}")
     return "\n\n".join(parts)
+
+
+def ingest_files_with_fixtures(paths):
+    """Like ingest_files, but also returns each source as a (basename, text) pair — REAL sample
+    data (an OCR'd ticket, a real document) that becomes ground-truth fixtures SP2 verifies
+    against. Returns (combined_text, [(source, sample), ...])."""
+    parts, fixtures = [], []
+    for p in paths:
+        text = ingest_file(p).strip()
+        if text:
+            base = os.path.basename(p)
+            parts.append(f"[from {base}]\n{text}")
+            fixtures.append((base, text))
+    return "\n\n".join(parts), fixtures
