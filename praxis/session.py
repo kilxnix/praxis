@@ -6,7 +6,7 @@ from praxis.models import WorkflowModel, NodeType
 from praxis.coverage import analyze_coverage
 from praxis.discovery import extract_deltas, apply_deltas, next_question
 from praxis.consolidate import consolidate_steps
-from praxis.arc import REQUIRED, next_unasked_probe, arc_traversed
+from praxis.arc import REQUIRED, ARC_PROBES, next_unasked_probe, arc_traversed
 from praxis.firm_agent import assemble_firm
 from praxis.engagement import Fixture
 
@@ -121,11 +121,21 @@ class DiscoverySession:
         if self.turn >= self.max_turns:
             return await self._close()          # hard cap always wins
 
+        # Force the CORE-WORK probe EARLY (not just at the terminal), so the value-producing work
+        # the business is built on — a photographer's culling, a lawyer's drafting — gets mapped
+        # with time left to expand it, instead of the interview rat-holing on the front office
+        # and never reaching the core even when the owner mentions it. This is what makes the
+        # plan cover ANY business, not just its back office.
+        override = None
+        if "core_work" not in self.arc_asked and \
+                len(self.model.nodes_of(NodeType.STEP)) >= 2 and self.turn >= 2:
+            _, override = ARC_PROBES[0]           # the core_work probe
+            self.arc_asked.add("core_work")
+            self.last_new_step_turn = self.turn
         # Owned completeness: before concluding, the interview MUST have walked the workflow to
         # its terminal. If the front is saturated (or we're low on turns) but the arc isn't yet
         # traversed, force the next required terminal probe instead of stopping.
-        override = None
-        if self._must_force_arc():
+        elif self._must_force_arc():
             key, prompt = next_unasked_probe(self.arc_asked)
             self.arc_asked.add(key)
             self.last_new_step_turn = self.turn   # give the newly-probed end room to surface steps

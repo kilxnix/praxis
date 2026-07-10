@@ -15,6 +15,11 @@ the answer (Ocean Principle). The owner describes their real ending in their own
 """
 
 ARC_PROBES = [
+    ("core_work",
+     "Now the heart of it: what is the MAIN work you are actually paid for — the making, fixing, "
+     "creating, editing, or serving itself, the part that takes the most of your time or skill? "
+     "Walk me through that core work step by step, especially anything you do in high volume "
+     "(going through many items, producing many things)."),
     ("after_core",
      "Now walk me PAST that — once the main work is done, what is the very next thing that "
      "happens? Keep moving forward step by step toward the end of a job."),
