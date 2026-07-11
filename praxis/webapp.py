@@ -33,6 +33,16 @@ async def index():
     return HTMLResponse(_INDEX.read_text(encoding="utf-8"))
 
 
+@app.get("/health")
+async def health():
+    """Readiness a tester (or the page) can check: is Ollama up, the model pulled, deps present."""
+    from praxis.preflight import run_checks
+    checks = run_checks()
+    return {"ready": all(c.ok for c in checks if c.required),
+            "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail,
+                        "fix": c.fix, "required": c.required} for c in checks]}
+
+
 def _slug(name):
     s = re.sub(r"[^a-z0-9]+", "_", (name or "engagement").lower()).strip("_")
     return s or "engagement"
