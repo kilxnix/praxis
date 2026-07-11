@@ -39,6 +39,23 @@ an optional ingest format you can skip.
 ```
 It preflights, starts the app, and opens http://localhost:8000 in your browser.
 
+## Reach it from another device / share it (Cloudflare tunnel)
+
+To use Praxis from your phone, another computer, or to let someone else test it — while it still
+runs entirely on THIS machine's model — expose it with a Cloudflare quick tunnel:
+
+```
+.venv\Scripts\python -m praxis.serve --tunnel
+```
+
+Needs `cloudflared` on PATH (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
+It prints a public `https://<random>.trycloudflare.com` URL — open that anywhere and do a full
+discovery + ingestion in the browser. The interview and the firm still run on your local Ollama;
+only the web traffic goes through the tunnel.
+
+Caution: the quick-tunnel URL is public — anyone with the link can run engagements on your
+machine's model. It's a random address; just stop the server (Ctrl+C) when you're done testing.
+
 ## Test the pipeline
 
 1. Type a **business name** (e.g. "Maria's HVAC").

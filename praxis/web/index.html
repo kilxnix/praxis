@@ -98,7 +98,10 @@ function md(text){
 }
 
 function connect(){
-  ws = new WebSocket('ws://'+location.host+'/ws');
+  // wss:// when served over https (e.g. a Cloudflare tunnel) — a plain ws:// from an https page
+  // is blocked by the browser as mixed content, which would silently break the interview.
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(wsProto+'//'+location.host+'/ws');
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if(m.type==='bot') bubble(m.text,'bot');
