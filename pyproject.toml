@@ -1,0 +1,8 @@
+# Praxis — an offline AI-implementation consultancy. Made by Kardashev Systems.
+# Project metadata + test configuration.
+
+[tool.pytest.ini_options]
+pythonpath = ["."]                 # so `import praxis` works from the repo root
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+asyncio_mode = "strict"            # async tests carry explicit @pytest.mark.asyncio

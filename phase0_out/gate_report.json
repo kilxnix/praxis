@@ -1,8 +1,0 @@
-{
-  "n": 4,
-  "auto_pass_rate": 1.0,
-  "avg_coverage": 1.0,
-  "avg_seconds": 90.93349999999919,
-  "human_pending": 4,
-  "verdict_hint": "AUTO-PASS majority; awaiting human scores"
-}
