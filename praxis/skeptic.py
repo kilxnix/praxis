@@ -82,6 +82,25 @@ _INVENTED_NEED_MARKERS = (
     "unnecessary", "artificial need", "creates a need", "not needed", "no genuine need",
 )
 
+# Skeptic kills creative first-pass because the owner CURRENTLY works on paper / by hand —
+# that describes today's medium, not a concrete risk of an AI options board they refine.
+# Designer failure: "sketch concepts on paper" rejected for "forces hybrid / tactile / analog".
+_MEDIUM_TRAP_MARKERS = (
+    "on paper", "hybrid workflow", "tactile", "analog", "analog-first", "paper-first",
+    "forces them into", "forces the owner into", "forces digital", "premature software",
+    "replacing tactile", "sketching on paper", "explicitly defined as sketching",
+    "they rejected", "violating their", "must stay manual", "their analog",
+    "replaces their craft", "replacing their craft", "creative process they",
+)
+
+# Objection is about the OLD design being dormant/useless — not a risk of a real first-pass.
+_DORMANT_DESIGN_MARKERS = (
+    "remaining dormant", "remains dormant", "completely dormant", "stays dormant",
+    "offers no utility", "functionally useless", "performs no", "does not draft",
+    "does not scan", "does not parse", "ignores a step", "failing to address any",
+    "failing to provide any", "leaves the owner doing exactly",
+)
+
 
 def _is_preference_objection(objection):
     o = (objection or "").lower()
@@ -93,17 +112,45 @@ def _is_invented_need_objection(objection):
     return any(m in o for m in _INVENTED_NEED_MARKERS) and not any(r in o for r in _RISK_MARKERS)
 
 
-def ground_verdicts(verdicts, model, transcript=None):
-    """For a HIGH-burden step (measured drudgery the owner clearly wants gone), a reject/weak that
-    rests on an invented PREFERENCE rather than a concrete risk is not valid — flip it to solid.
-    This is the owned counterweight to the skeptic fabricating 'they value control' and killing
-    the top opportunity, which also contradicted the recommendations."""
+def _is_medium_trap_objection(objection):
+    o = (objection or "").lower()
+    return any(m in o for m in _MEDIUM_TRAP_MARKERS) and not any(r in o for r in _RISK_MARKERS)
+
+
+def _is_dormant_design_objection(objection):
+    o = (objection or "").lower()
+    return any(m in o for m in _DORMANT_DESIGN_MARKERS)
+
+
+def _is_invalid_high_core_objection(objection):
+    """True when the objection is not a concrete risk — preference, invented need, medium trap,
+    or complaint about a dormant design we replace."""
+    return (_is_preference_objection(objection)
+            or _is_invented_need_objection(objection)
+            or _is_medium_trap_objection(objection)
+            or _is_dormant_design_objection(objection))
+
+
+def _is_high_core_step(step_label, model, transcript=None, opportunities=None):
+    """High = analyst severity high OR measured burden high (map + optional transcript)."""
+    if opportunities:
+        for o in opportunities:
+            if o.step_label == step_label and getattr(o, "severity", "") == "high":
+                return True
     from praxis.grounding import measure_burden, burden_severity
+    return burden_severity(measure_burden(step_label, model, transcript)) == "high"
+
+
+def ground_verdicts(verdicts, model, transcript=None, opportunities=None):
+    """For HIGH-burden / high-severity core work, a reject/weak that rests on preference,
+    medium-trap ('they sketch on paper'), invented need, or a dormant-design complaint — rather
+    than a concrete risk — is not valid. Flip to solid so creative generation (sketch, Illustrator
+    edits) can ship as a first-pass recommendation."""
     out = []
     for v in verdicts:
-        invalid = _is_preference_objection(v.objection) or _is_invented_need_objection(v.objection)
+        invalid = _is_invalid_high_core_objection(v.objection)
         if (v.verdict in ("reject", "weak") and invalid
-                and burden_severity(measure_burden(v.step_label, model, transcript)) == "high"):
+                and _is_high_core_step(v.step_label, model, transcript, opportunities)):
             out.append(Verdict(v.step_label, "solid", ""))
         else:
             out.append(v)

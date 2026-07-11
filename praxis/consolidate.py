@@ -4,21 +4,31 @@ merge SAME-activity steps worded differently (e.g. "write five dots" ~ "scribble
 dots"). Ocean-safe: it groups the client's OWN labels, imposing no external categories.
 
 Merging is a pure graph transform (re-point edges to a canonical node, union evidence,
-drop the duplicate); only the grouping decision uses the LLM."""
+drop the duplicate); only the grouping decision uses the LLM.
+
+After the LLM pass, an OWNED grain cleanup always runs: drop micro/vague/third-party
+non-steps that slipped extraction, and merge near-duplicate steps the model left split
+(e.g. three commission-spreadsheet variants). That is the fix for realtor-map noise —
+we don't just note it in the audit."""
 import json
+import re
 from praxis.models import NodeType
+from praxis.discovery_signals import is_valid_step_label, canonical_label
 
 CONSOLIDATE_SYSTEM = """You are given a list of workflow STEP labels from ONE business. \
 Many describe the SAME underlying action in different words — a different verb, tense, or \
 extra detail. For example "draft proposal", "type proposal manually", and "write the \
 proposal" are ONE step; "copy lead into spreadsheet" and "paste details into the sheet" \
-are ONE step. Group all such duplicates AGGRESSIVELY.
+are ONE step; "check commission numbers against spreadsheet", "verify commission check \
+matches spreadsheet", and "re-type final numbers into spreadsheet" are ONE step (same \
+reconciliation). Group all such duplicates AGGRESSIVELY.
 
 Return JSON {"groups": [[...], ...]}. Each group lists 2+ input labels that are the same \
 step; put the shortest, clearest label FIRST (it becomes canonical). Merge steps that \
 share the same core action or purpose even if worded quite differently. Do NOT group \
 steps that are genuinely different actions (e.g. "draft proposal" vs "send invoice"). \
-Omit any label that has no duplicate."""
+Omit any label that has no duplicate. Also omit micro-motions and third-party events \
+("double-check phone", "delivers images") — those are not real owner steps."""
 
 
 def _merge(model, canon_id, dup_id):
@@ -50,6 +60,107 @@ def _merge(model, canon_id, dup_id):
             seen.add(key)
 
 
+def _drop_step(model, step_id):
+    """Remove a non-step node and every edge touching it."""
+    if step_id not in model.nodes:
+        return
+    for eid in list(model.edges):
+        e = model.edges[eid]
+        if e.source == step_id or e.target == step_id:
+            del model.edges[eid]
+    del model.nodes[step_id]
+
+
+# Light words ignored when comparing steps for near-duplicate merge.
+_MERGE_STOP = {
+    "the", "a", "an", "into", "to", "from", "on", "in", "for", "with", "against",
+    "my", "our", "your", "and", "or", "of", "at", "by", "up", "out", "over",
+}
+# Verbs that mean the same kind of reconciliation / data-check when paired with the same object.
+_VERIFY_FAMILY = {
+    "check", "verify", "match", "matches", "matching", "confirm", "reconcile",
+    "retype", "re-type", "type", "reenter", "re-enter", "compare", "crosscheck",
+    "cross-check", "audit", "validate",
+}
+
+
+def _merge_signature(label):
+    """Content tokens of a step, with check/verify/re-type collapsed — so near-duplicates
+    of the same reconciliation land on the same signature set."""
+    c = canonical_label(label)
+    # "re-type" / "re-enter" become two tokens after punctuation strip — collapse first.
+    c = re.sub(r"\bre\s+type\b", "retype", c)
+    c = re.sub(r"\bre\s+enter\b", "reenter", c)
+    c = re.sub(r"\bcross\s+check\b", "crosscheck", c)
+    toks = []
+    for t in c.split():
+        if t in _MERGE_STOP:
+            continue
+        if t in _VERIFY_FAMILY or t.replace("-", "") in ("retype", "reenter", "crosscheck"):
+            toks.append("*verify*")
+        else:
+            toks.append(t)
+    return set(toks)
+
+
+def _near_duplicate(a_label, b_label, min_jaccard=0.5):
+    sa, sb = _merge_signature(a_label), _merge_signature(b_label)
+    if not sa or not sb:
+        return False
+    return (len(sa & sb) / len(sa | sb)) >= min_jaccard
+
+
+def _owned_merge_near_duplicates(model):
+    """Deterministic merge of steps the LLM left split (commission triple, etc.).
+    Uses connected components so A~B and B~C merge A+B+C even if A~C is weaker.
+    Prefer the shorter label with more evidence as canonical inside each component."""
+    steps = list(model.nodes_of(NodeType.STEP))
+    if len(steps) < 2:
+        return
+    n = len(steps)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _near_duplicate(steps[i].label, steps[j].label):
+                union(i, j)
+
+    components = {}
+    for i in range(n):
+        components.setdefault(find(i), []).append(steps[i])
+
+    for group in components.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda s: (len(s.label), -s.confidence.evidence_count, s.id))
+        canon = group[0]
+        for dup in group[1:]:
+            if dup.id in model.nodes and canon.id in model.nodes:
+                _merge(model, canon.id, dup.id)
+
+
+def prune_map_grain(model):
+    """Owned grain cleanup — always runs after consolidate (and can be called alone).
+    1. Drop steps that fail is_valid_step_label (micro-motions, umbrellas, third-party events).
+    2. Merge near-duplicate remaining steps by content signature.
+    Deterministic; does not invent domain categories — only FORM of the labels."""
+    for s in list(model.nodes_of(NodeType.STEP)):
+        if not is_valid_step_label(s.label):
+            _drop_step(model, s.id)
+    _owned_merge_near_duplicates(model)
+
+
 def apply_groups(model, groups):
     """Merge each group of step labels into its first (canonical) label. Pure."""
     label_to_id = {}
@@ -70,10 +181,11 @@ def apply_groups(model, groups):
 
 async def consolidate_steps(client, model):
     steps = model.nodes_of(NodeType.STEP)
-    if len(steps) < 3:
-        return
-    labels = [s.label for s in steps]
-    result = await client.complete_json(CONSOLIDATE_SYSTEM,
-                                        json.dumps({"steps": labels}))
-    groups = result.get("groups", []) if isinstance(result, dict) else []
-    apply_groups(model, groups)
+    if len(steps) >= 3:
+        labels = [s.label for s in steps]
+        result = await client.complete_json(CONSOLIDATE_SYSTEM,
+                                            json.dumps({"steps": labels}))
+        groups = result.get("groups", []) if isinstance(result, dict) else []
+        apply_groups(model, groups)
+    # Always: owned grain cleanup so local-model laziness can't leave a noisy map.
+    prune_map_grain(model)

@@ -27,6 +27,19 @@ def test_is_valid_step_label_rejects_non_activities():
     assert is_valid_step_label("cull images and edit") is True           # a real activity survives
     assert is_valid_step_label("take customer cash") is True
 
+
+def test_is_valid_step_label_rejects_realtor_map_noise():
+    """Exact non-steps from residential_realtor run — micro, umbrella, third-party."""
+    assert is_valid_step_label("double-check phone after hanging up") is False
+    assert is_valid_step_label("manage existing pipeline") is False
+    assert is_valid_step_label("get properties listed") is False
+    assert is_valid_step_label("delivers images") is False
+    # Real owner activities from the same run still pass
+    assert is_valid_step_label("pick best shots from photos") is True
+    assert is_valid_step_label("write MLS description") is True
+    assert is_valid_step_label("fill out DocuSign templates") is True
+    assert is_valid_step_label("schedule showings on calls") is True
+
 def test_is_vague():
     assert is_vague("uh, we do stuff") is True                 # <5 words
     assert is_vague("maybe we sort of handle it later somehow") is True  # hedge

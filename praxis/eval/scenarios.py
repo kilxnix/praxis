@@ -56,4 +56,16 @@ SCENARIOS = [
         persona="warm but harried; jumps between patients and paperwork, but lands on the real answer",
         truth="Patients are booked by phone into a scheduling app; each session the therapist writes notes on paper and types them into the patient record that evening; insurance authorizations are checked by phone and logged in a spreadsheet; billing codes are entered by hand from the session notes; appointment reminders are called or texted manually the day before; no-shows are common and re-booked ad hoc.",
     ),
+    Scenario(
+        key="event_videographer",
+        business="a solo event videographer covering weddings and corporate events",
+        persona="creative and a bit scattered; talks about the craft first, then admits the admin when pressed; answers are truthful and concrete once pinned down",
+        truth="Inquiries come in via Instagram DMs and a website form into Gmail; she replies and books dates in a Google Calendar she keeps by hand; on shoot day she films 6–10 hours of footage on two cameras; the CORE work is reviewing and selecting usable clips from thousands of minutes of raw footage in Premiere — she says she spends entire nights scrubbing timelines and it takes 20–40 hours per wedding; she assembles a highlight film and a longer cut, exports, and uploads to a client gallery (Pixieset); contracts are Word templates she customizes per couple; invoices go out from Wave after delivery; follow-ups for testimonials are remembered, not tracked.",
+    ),
+    Scenario(
+        key="residential_realtor",
+        business="a solo residential real estate agent",
+        persona="upbeat and salesy at first, then frank about the grind when asked directly; short answers when between showings, truthful and concrete",
+        truth="Leads arrive from Zillow, Facebook, and open-house sign-in sheets into her phone and a shared Gmail; she logs each lead by hand into a Google Sheet CRM; she schedules showings and open houses in a paper planner and Google Calendar; on listing day a photographer delivers 80–150 property photos and she spends 2–3 hours every listing night picking the best shots and writing the MLS description from her walkthrough notes; she re-types property facts (beds, baths, sqft, taxes) from the assessor printout into the MLS form; offers come in as PDFs by email and she tracks contingencies and deadlines on sticky notes and a whiteboard; contracts are DocuSign templates she fills from the offer; closed deals get commission checked against a spreadsheet; follow-up for past clients and annual check-ins is remembered, not systematized.",
+    ),
 ]

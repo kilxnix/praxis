@@ -188,7 +188,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
 
     verdicts = await _attempt(
         lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
-    verdicts = ground_verdicts(verdicts, model, transcript)   # overturn invented-preference rejections of core work
+    verdicts = ground_verdicts(verdicts, model, transcript, opportunities)
     state.verdicts = verdicts
     ns, nw, nr = _tally(verdicts)
     state.record("skeptic", "reviewed", f"{ns} solid, {nw} weak, {nr} reject",
@@ -210,6 +210,8 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
                                            _mem(firm, "architect")))
         rev_by = {iv.step_label: iv for iv in revised}
         interventions = [rev_by.get(iv.step_label, iv) for iv in interventions]
+        # Redesign can re-timid creative core — fix before re-score/re-review.
+        interventions = ensure_shippable_designs(interventions, opportunities, model)
         state.interventions = interventions
         state.record("architect", "revised_interventions",
                      f"redesigned {len(revised)} to address the objections",
@@ -219,7 +221,7 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
         state.assessments = assessments
         verdicts = await _attempt(
             lambda: review(client, interventions, assessments, _mem(firm, "skeptic")))
-        verdicts = ground_verdicts(verdicts, model, transcript)
+        verdicts = ground_verdicts(verdicts, model, transcript, opportunities)
         state.verdicts = verdicts
         ns, nw, nr = _tally(verdicts)
         state.record("skeptic", "re_reviewed",
@@ -230,6 +232,10 @@ async def run_firm(client, model, max_redo=1, firm=None, business_label="", tran
     # After redesign bounces, re-assert shippable high-burden designs (a redesign can re-timid).
     interventions = ensure_shippable_designs(interventions, opportunities, model)
     state.interventions = interventions
+    # Verdicts may still describe a pre-owned dormant design. Re-ground so high-core creative
+    # generation (sketch/Illustrator) is not left in not_recommending after we fixed the design.
+    verdicts = ground_verdicts(verdicts, model, transcript, opportunities)
+    state.verdicts = verdicts
 
     deliverable = assemble_deliverable(model, opportunities, interventions,
                                        assessments, verdicts)

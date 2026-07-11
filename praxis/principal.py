@@ -10,7 +10,8 @@ import json
 from praxis.models import NodeType, EdgeType
 from praxis.business_case import _PRIORITY_ORDER
 from praxis.discovery_signals import canonical_label
-from praxis.architect import is_timid
+from praxis.architect import is_timid, owned_core_design, _is_high_core
+from praxis.skeptic import _is_invalid_high_core_objection
 
 START_HERE_CAP = 4   # a focused plan leads with a handful of high-impact items, not one, not ten
 
@@ -52,31 +53,41 @@ def assemble_deliverable(model, opportunities, interventions, assessments, verdi
     where_it_hurts = [{"step": s.label, "friction": fr}
                       for s in steps if (fr := _step_friction(model, s.id))]
 
+    opp_by = {o.step_label: o for o in opportunities}
     recommended, not_recommending = [], []
     for iv in interventions:
         v = verdict_by.get(iv.step_label)
         a = score_by.get(iv.step_label)
         # NO-OP GATE: an inert design ("you still type", empty document) is a non-solution and is
-        # dropped — SP2 can't compile logic that disclaims itself. BUT never let the owner's
-        # HIGH-burden core work vanish silently: if the biggest opportunity only got a weak
-        # design, surface it as "not recommending (design needs scoping)" instead of dropping it,
-        # so a photographer still SEES culling is her #1 opportunity even if the exact tool is TBD.
+        # dropped — SP2 can't compile logic that disclaims itself. For HIGH-burden core work the
+        # local model often still ships a timid design; replace it with an owned AI-first-pass
+        # recommendation (specific pattern + full buildable spec) so the biggest opportunity is
+        # a real plan item, not "needs more scoping".
+        opp = opp_by.get(iv.step_label)
         if is_timid(iv):
-            if sev_by.get(iv.step_label) == "high":
-                not_recommending.append({"step": iv.step_label,
-                    "reason": "your biggest opportunity — the automation here needs more scoping "
-                              "before we recommend a specific tool"})
-            continue
+            if opp is not None and (sev_by.get(iv.step_label) == "high" or _is_high_core(opp, model)):
+                iv = owned_core_design(opp, model)
+            else:
+                continue
         # Only SOLID interventions are recommended. A weak verdict (a real, unresolved concern)
         # or a 'skip' is set aside with its reason — we never ship a recommendation that our
         # own review says makes things worse.
+        # Exception: high-core creative work killed by preference / paper-medium / dormant-design
+        # objections — replace with owned first-pass and recommend (the honest edge is a
+        # shippable design, not "not recommending").
         set_aside = (v is not None and v.verdict in ("reject", "weak")) or \
                     (a is not None and a.priority == "skip")
         if set_aside:
             reason = (v.objection if (v and v.objection)
                       else (a.rationale if a else "not clearly worth it"))
-            not_recommending.append({"step": iv.step_label, "reason": reason})
-            continue
+            if (opp is not None and _is_high_core(opp, model)
+                    and _is_invalid_high_core_objection(reason)):
+                if is_timid(iv) or not iv.is_buildable():
+                    iv = owned_core_design(opp, model)
+                set_aside = False
+            else:
+                not_recommending.append({"step": iv.step_label, "reason": reason})
+                continue
         recommended.append({
             "step": iv.step_label,
             "what_it_does": iv.what_it_does,

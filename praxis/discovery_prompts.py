@@ -12,8 +12,11 @@ Return JSON {"deltas":[...]}. Each delta is one of:
 
 STEPS — the most important rules:
 - A step is ONE meaningful business ACTIVITY that moves the work forward, labelled as a SHORT verb-object phrase in their words: "take order", "bake bread", "send invoice". Max 4 words.
-- Steps must be at the right GRAIN. Do NOT create a step for a physical micro-motion or a way of doing a step ("scan columns", "toggle between tabs", "keep files side by side", "click the cell", "scroll down"). Those are HOW one step is done, not separate steps — fold them into the real activity (e.g. "reconcile data"). Aim for a handful of real steps, not dozens of motions.
+- Steps must be at the right GRAIN. Do NOT create a step for a physical micro-motion or a way of doing a step ("scan columns", "toggle between tabs", "keep files side by side", "click the cell", "scroll down", "double-check phone after hanging up"). Those are HOW one step is done, not separate steps — fold them into the real activity (e.g. "reconcile data"). Aim for a handful of real steps, not dozens of motions.
 - Do NOT make steps out of feelings, hopes, guesses, or complaints ("hoping it sold", "before it burns", "we just wing it"). Those are frictions at most, or nothing.
+- Do NOT make steps out of meta umbrellas ("manage existing pipeline", "get properties listed") — name the concrete activity instead.
+- Do NOT make steps for third-party events the owner doesn't perform ("delivers images", "photographer arrives") — only the OWNER's actions. If a photographer drops off photos, the owner's step is "pick best shots" or "receive photos", not "delivers images".
+- Do NOT create a new step that is just a rewording of an existing one (e.g. three variants of checking commission numbers against a spreadsheet — ONE step).
 - When you add a step, in the SAME response also emit the edges the person stated for it:
     actor performs step (performs: actor -> step),
     step uses tool (uses: step -> tool),
@@ -53,9 +56,25 @@ for mistakes, and re-typing the same information between tools. So as you map th
 process, make sure you actually find out whether any of their steps involve these — if they \
 photograph something, take a call, fill in a form, juggle a calendar, or double-check for \
 errors, get that mapped. Don't pitch AI or lead them; just ask about their real work so \
-these parts don't get missed, and record whatever they say in their own words."""
+these parts don't get missed, and record whatever they say in their own words.
+
+CRITICAL — never loop:
+- Do NOT re-ask a question you already asked (even rephrased). Look at what YOU said earlier.
+- If they already answered — including a clear NO ("there isn't much re-typing", "I don't do that") \
+— accept it and MOVE FORWARD to the next part of their process.
+- Prefer "what happens next" over drilling the same intake step again."""
 
 
 def build_interviewer_user(history, focus_hint):
-    recent = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-6:])
-    return f"Conversation so far:\n{recent}\n\nYour focus right now: {focus_hint}\n\nAsk one question."
+    recent = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-8:])
+    already = [m.get("content", "") for m in history
+               if m.get("role") == "assistant" and m.get("content")]
+    already_block = ""
+    if already:
+        lines = "\n".join(f"- {q}" for q in already[-5:])
+        already_block = (
+            "\n\nQuestions YOU already asked (do NOT rephrase any of these; pick a NEW angle "
+            "or move forward):\n" + lines
+        )
+    return (f"Conversation so far:\n{recent}{already_block}\n\n"
+            f"Your focus right now: {focus_hint}\n\nAsk one NEW question.")

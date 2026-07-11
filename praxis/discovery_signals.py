@@ -15,7 +15,26 @@ _NON_ACTIVITY_LEADS = {
     "wait", "waiting", "pause", "pausing", "hang", "sit", "sitting", "stand", "standing",
     "think", "thinking", "remember", "remembering", "recall", "forget", "forgetting",
     "mishear", "misread", "hope", "worry", "worrying", "guess", "rest", "resting", "idle",
+    # micro-checks of a prior step ("double-check phone after hanging up") — HOW, not a step
+    "double-check", "doublecheck", "recheck", "re-check",
+    # meta umbrellas that name a whole job, not one activity ("manage existing pipeline")
+    "manage", "focus",
+    # third-party inbound events phrased as the vendor's verb ("delivers images") — not the
+    # owner's work. Owner-side receive/accept stays allowed via other verbs.
+    "delivers", "arrives", "lands",
 }
+
+# Phrase-level micro-motions / non-steps (FORM, not domain). Substring match on the label.
+_MICRO_PHRASES = (
+    "hanging up", "after hanging", "double-check", "double check",
+    "cross out", "right after hanging", "while still fresh",
+)
+
+# Outcome umbrellas: "get properties listed" is the result of many real steps, not one step.
+_UMBRELLA_MARKERS = (
+    "pipeline",           # manage / work the pipeline
+    "get listed", "properties listed", "getting listed",
+)
 
 
 def canonical_label(raw: str) -> str:
@@ -43,6 +62,17 @@ def is_valid_step_label(raw: str) -> bool:
     # these aren't steps that move the work forward.
     first = words[0].lower().strip(".,!?")
     if first in _NON_ACTIVITY_LEADS:
+        return False
+    # "double check …" as two tokens
+    if first == "double" and len(words) > 1 and words[1].lower().startswith("check"):
+        return False
+    joined = " ".join(w.lower() for w in words)
+    if any(p in joined for p in _MICRO_PHRASES):
+        return False
+    if any(u in joined for u in _UMBRELLA_MARKERS):
+        return False
+    # "get X listed" umbrella outcome
+    if first == "get" and "listed" in joined:
         return False
     return True
 

@@ -112,7 +112,42 @@ def apply_deltas(model, deltas, turn):
             continue
 
 
-async def next_question(client, model, history, focus_override=None):
+def _recent_assistant_questions(history, n=5):
+    qs = [m.get("content", "") for m in history if m.get("role") == "assistant" and m.get("content")]
+    return qs[-n:]
+
+
+def question_too_similar(candidate, recent, min_overlap=0.55):
+    """True when candidate largely rephrases a recent question (token Jaccard). Owned anti-loop
+    for the LLM interviewer, which likes to re-ask 'do you re-type X?' in slightly new words."""
+    if not candidate or not recent:
+        return False
+    def toks(s):
+        stop = {"the", "a", "an", "to", "of", "do", "you", "your", "is", "it", "in", "on",
+                "for", "and", "or", "when", "what", "how", "that", "this", "with", "about",
+                "them", "they", "their", "any", "from", "just", "so", "we", "me", "my"}
+        return {t for t in re.findall(r"[a-z0-9]+", (s or "").lower()) if t not in stop and len(t) > 2}
+    ct = toks(candidate)
+    if len(ct) < 4:
+        return False
+    for prev in recent:
+        pt = toks(prev)
+        if not pt:
+            continue
+        overlap = len(ct & pt) / len(ct | pt)
+        if overlap >= min_overlap:
+            return True
+    return False
+
+
+_FORWARD_HINT = (
+    "You already covered this area. MOVE FORWARD — ask what happens NEXT in their process "
+    "(the following step, later that day, how the job ends, or how they get paid). Do NOT "
+    "rephrase a question you already asked. Do NOT re-probe a pain they already said they don't have."
+)
+
+
+async def next_question(client, model, history, focus_override=None, probed_foci=None):
     if focus_override:
         hint, intent = focus_override, None      # steer to a missing phase (completeness gate)
     else:
@@ -121,7 +156,7 @@ async def next_question(client, model, history, focus_override=None):
             if m.get("role") == "user":
                 last = m.get("content", "")
                 break
-        state = InterviewState(model, last_answer=last)
+        state = InterviewState(model, last_answer=last, probed_foci=set(probed_foci or ()))
         play = select_play(state)
         hint = play.focus(state)
         intent = focus_target(state)   # which step + facet this question targets, or None
@@ -131,4 +166,15 @@ async def next_question(client, model, history, focus_override=None):
     text = await client.complete(P.INTERVIEWER_SYSTEM,
                                  [{"role": "user", "content": user}],
                                  max_tokens=120, temperature=0.3)
-    return text.strip(), intent
+    text = (text or "").strip()
+    # If the model rephrased a recent question, force a forward-moving re-ask once.
+    recent = _recent_assistant_questions(history)
+    if text and question_too_similar(text, recent) and not focus_override:
+        user2 = P.build_interviewer_user(history, _FORWARD_HINT)
+        text2 = await client.complete(P.INTERVIEWER_SYSTEM,
+                                      [{"role": "user", "content": user2}],
+                                      max_tokens=120, temperature=0.3)
+        text2 = (text2 or "").strip()
+        if text2:
+            text, intent = text2, None   # dropped the stuck facet intent — we moved on
+    return text, intent

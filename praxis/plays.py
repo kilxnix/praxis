@@ -19,10 +19,20 @@ _FACET_Q = {
 class InterviewState:
     model: object
     last_answer: str = ""
+    # Foci already probed this interview ("step_label|facet"). Once asked, we move on even if
+    # the map facet is still empty — re-asking the same facet is the discovery loop failure.
+    probed_foci: set = None
+
+    def __post_init__(self):
+        if self.probed_foci is None:
+            self.probed_foci = set()
 
     @property
     def coverage(self):
         return analyze_coverage(self.model)
+
+    def focus_key(self, step_label, facet):
+        return f"{(step_label or '').strip().lower()}|{(facet or '').strip().lower()}"
 
 
 @dataclass
@@ -42,7 +52,11 @@ def _nonfriction_gap(state):
     """Return (step_node, missing_facets) for the UNSATISFIED step closest to done
     (fewest missing required facets), so we finish steps rather than spreading thin.
     A step is satisfied at actor + tool + (input OR output); missing facets beyond that
-    are not chased here. None if every step is already satisfied."""
+    are not chased here. None if every step is already satisfied.
+
+    Skips foci already probed this interview — once we asked about a step's tool/actor,
+    we do not re-ask even if extraction never attached the edge. That is the fix for the
+    discovery loop that re-asked 'do you re-type into the contract?' four times."""
     m = state.model
     best = None
     for s in _steps(state):
@@ -50,10 +64,17 @@ def _nonfriction_gap(state):
         if is_satisfied(f):
             continue
         missing = []
-        if not f["actor"]:
+        if not f["actor"] and state.focus_key(s.label, "actor") not in state.probed_foci:
             missing.append("actor")
         if not (f["tool"] or f["input"] or f["output"]):
-            missing.append("output")
+            # Need a concrete anchor. Probe tool → input → output once each; after all are
+            # probed without a hit, stop chasing this step (don't re-ask forever).
+            for cand in ("tool", "input", "output"):
+                if state.focus_key(s.label, cand) not in state.probed_foci:
+                    missing.append(cand)
+                    break
+        if not missing:
+            continue
         if best is None or len(missing) < len(best[1]):
             best = (s, missing)
     return best
@@ -119,7 +140,8 @@ def select_play(state: InterviewState) -> Play:
 def focus_target(state: InterviewState):
     """The structured intent of the selected play: which step + facet the next question
     is trying to complete, so the extractor can attach the client's answer to that step.
-    None when the selected play isn't targeting a specific step's facet."""
+    None when the selected play isn't targeting a specific step's facet. Uses the same
+    state (including probed_foci) so intent matches the play that was selected."""
     play = select_play(state)
     if play.id == "complete_step_facets":
         g = _nonfriction_gap(state)

@@ -184,6 +184,67 @@ def test_high_burden_timid_design_is_replaced_with_shippable_recommendation():
     assert "needs more scoping" not in " ".join(n.get("reason", "") for n in d["not_recommending"])
 
 
+def test_creative_generation_not_left_in_not_recommending():
+    """Designer failure: high-severity sketch + Illustrator land in not_recommending after
+    timid/dormant designs or paper-medium objections. Must ship as buildable first-pass."""
+    from praxis.architect import Intervention
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "sketch concepts on paper",
+               [Evidence("I sketch concepts on paper for hours every project", 2)])
+    m.add_node(NodeType.STEP, "make changes in Illustrator",
+               [Evidence("I spend hours making changes in Illustrator from markups", 3)])
+    opps = [
+        Opportunity("sketch concepts on paper",
+                    "generate first-draft creative or professional work",
+                    "Generate concept variations", "I sketch concepts on paper", "high"),
+        Opportunity("make changes in Illustrator",
+                    "generate first-draft creative",
+                    "Apply markups as first pass", "making changes in Illustrator", "high"),
+    ]
+    ivs = [
+        Intervention("sketch concepts on paper",
+                     "Generates digital wireframes in Illustrator", "Illustrator", "brief",
+                     "forces digital", trigger="t", input_source="i", output_dest="o",
+                     success_criteria="c"),
+        Intervention("make changes in Illustrator",
+                     "Remains dormant. It does not scan PDFs or flag errors.",
+                     "x", "y", "z", trigger="t", input_source="i", output_dest="o",
+                     success_criteria="c"),
+    ]
+    scores = [Assessment(o.step_label, "low", "high", "low", "low", "quick win", "")
+              for o in opps]
+    verds = [
+        Verdict("sketch concepts on paper", "reject",
+                "forces the owner into a hybrid workflow; step is sketching on paper; "
+                "replacing tactile sketching with premature software"),
+        Verdict("make changes in Illustrator", "reject",
+                "The change proposes remaining dormant; offers no utility"),
+    ]
+    d = assemble_deliverable(m, opps, ivs, scores, verds)
+    steps = {e["step"] for e in d["where_ai_fits"]}
+    assert "sketch concepts on paper" in steps
+    assert "make changes in Illustrator" in steps
+    for label in ("sketch concepts on paper", "make changes in Illustrator"):
+        rec = next(e for e in d["where_ai_fits"] if e["step"] == label)
+        assert rec["buildable"] is True
+        assert "dormant" not in rec["what_it_does"].lower()
+    assert not any(n["step"] == "sketch concepts on paper" for n in d["not_recommending"])
+    assert not any(n["step"] == "make changes in Illustrator" for n in d["not_recommending"])
+
+
+def test_ground_verdicts_overturns_paper_medium_rejection_of_creative_core():
+    m = WorkflowModel()
+    m.add_node(NodeType.STEP, "sketch concepts on paper",
+               [Evidence("I sketch concepts on paper for hours every project", 2)])
+    opps = [Opportunity("sketch concepts on paper", "generate first-draft creative",
+                        "concepts", "I sketch concepts", "high")]
+    vs = [Verdict("sketch concepts on paper", "reject",
+                  "forces the owner into a hybrid workflow for a step explicitly defined as "
+                  "sketching on paper; replaces tactile sketching")]
+    out = ground_verdicts(vs, m, opportunities=opps)
+    assert out[0].verdict == "solid"
+
+
 # --- 9. Core value work is prioritized by its NATURE, not by volume words ---------------------
 
 @pytest.mark.asyncio

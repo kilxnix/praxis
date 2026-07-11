@@ -44,3 +44,29 @@ def test_no_play_leaks_business_content():
         if p.matches(st):
             words = set(p.focus(st).lower().replace("'", " ").split())
             assert not (words & DENY), f"play {p.id} leaked a business noun"
+
+
+def test_probed_foci_stops_reasking_same_facet():
+    """Once a facet has been asked, complete_step_facets must not re-target it — the discovery
+    loop that re-asked 're-type into contract?' four times."""
+    from praxis.plays import _nonfriction_gap, focus_target
+    m = WorkflowModel()
+    s = m.add_node(NodeType.STEP, "chat about vibe", _ev())
+    # Unsatisfied: no actor, no tool/input/output
+    st = InterviewState(m, last_answer="we chat about vibe")
+    g1 = _nonfriction_gap(st)
+    assert g1 is not None
+    facet1 = g1[1][0]
+    st.probed_foci.add(st.focus_key(s.label, facet1))
+    # Same step, first facet probed — should move to another unprobed facet or None
+    g2 = _nonfriction_gap(st)
+    if g2 is not None and g2[0].label == s.label:
+        assert g2[1][0] != facet1, "must not re-ask the same facet"
+    # Probe all remaining facets for this step
+    while True:
+        g = _nonfriction_gap(st)
+        if g is None or g[0].label != s.label:
+            break
+        st.probed_foci.add(st.focus_key(g[0].label, g[1][0]))
+    # Fully probed unsatisfied step is no longer chased
+    assert _nonfriction_gap(st) is None or _nonfriction_gap(st)[0].label != s.label
