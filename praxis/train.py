@@ -64,6 +64,15 @@ def _append_ledger(path, rec):
         f.write(json.dumps(rec) + "\n")
 
 
+def _ledger_count(path):
+    """How many engagements the ledger already holds, so a restarted loop keeps numbering
+    continuously instead of resetting to 1 each run."""
+    if not os.path.exists(path):
+        return 0
+    with open(path, encoding="utf-8") as f:
+        return sum(1 for line in f if line.strip())
+
+
 def _format_progress(rec):
     if not rec.get("ok"):
         return f"[{rec['n']}] {rec['business']}: FAILED after {rec['seconds']}s — {rec['error']}"
@@ -137,6 +146,7 @@ async def train(*, count=None, interval=5.0, minds_dir=DEFAULT_MINDS_DIR, out_ro
         random.shuffle(order)
 
     ledger = os.path.join(minds_dir, "training_log.jsonl")
+    base_n = _ledger_count(ledger)      # continue numbering across restarts
     clients = None
     if run_one is None:
         clients = (OllamaClient(), OllamaClient())
@@ -152,14 +162,14 @@ async def train(*, count=None, interval=5.0, minds_dir=DEFAULT_MINDS_DIR, out_ro
             try:
                 learned = await run_one(scenario)
                 after = mind_sizes(minds_dir)
-                rec = {"n": n + 1, "business": scenario.key,
+                rec = {"n": base_n + n + 1, "business": scenario.key,
                        "seconds": round(time.monotonic() - t0, 1),
                        "minds": after,
                        "new": {k: after.get(k, 0) - before.get(k, 0) for k in after},
                        "learned": learned if isinstance(learned, int) else None,
                        "ok": True}
             except Exception as e:  # a bad engagement must never kill the loop
-                rec = {"n": n + 1, "business": scenario.key,
+                rec = {"n": base_n + n + 1, "business": scenario.key,
                        "seconds": round(time.monotonic() - t0, 1),
                        "error": f"{type(e).__name__}: {e}", "ok": False}
             _append_ledger(ledger, rec)

@@ -53,6 +53,23 @@ async def test_loop_runs_every_business_and_learns(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_numbering_continues_across_restarts(tmp_path):
+    minds = str(tmp_path / "minds")
+    pool = [SimpleNamespace(key="a")]
+
+    async def run_one(sc):
+        pass
+
+    await T.train(count=2, interval=0, minds_dir=minds, pool=pool,
+                  run_one=run_one, sleep=_nosleep, log=lambda *_: None)
+    await T.train(count=2, interval=0, minds_dir=minds, pool=pool,   # a second, separate run
+                  run_one=run_one, sleep=_nosleep, log=lambda *_: None)
+
+    ns = [r["n"] for r in _ledger(minds)]
+    assert ns == [1, 2, 3, 4]      # the restart picks up at 3, not back at 1
+
+
+@pytest.mark.asyncio
 async def test_a_failed_engagement_does_not_kill_the_loop(tmp_path):
     minds = str(tmp_path / "minds")
     pool = [SimpleNamespace(key="good"), SimpleNamespace(key="bad")]
