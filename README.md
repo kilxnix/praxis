@@ -92,6 +92,26 @@ The interview and the firm still run on *your* local model; only the web traffic
 
 See **[TESTING.md](TESTING.md)** for the full walkthrough.
 
+## Keeping the firm live (training)
+
+The five agents are people who develop their own minds by working businesses: after every
+engagement each one distills durable, transferable lessons into `firm_minds/<role>.json` and
+carries them into the next. One engagement seasons them a little; a loop keeps them working
+unattended so their minds compound and their reasoning becomes genuinely their own.
+
+```bash
+python -m praxis.train            # run engagements back-to-back, continuously, until Ctrl+C
+python -m praxis.train --count 20 # or a fixed number
+python -m praxis.train --interval 30   # pace it — 30s between engagements, lighter on the machine
+python -m praxis.train --status   # what each employee has learned so far
+```
+
+Engagements run one at a time (the machine stays usable), against a rotation of 30+ businesses
+across professions (the built-in scenarios plus a generated [corpus](praxis/eval/corpus.py)). A
+failed run is logged to `firm_minds/training_log.jsonl` and skipped — it never kills the loop —
+and everything persists, so stopping and restarting picks up seasoned. The minds self-consolidate
+as they grow, staying a sharp lens rather than an ever-growing pile.
+
 ## What's in the box
 
 ```
@@ -105,6 +125,8 @@ praxis/
   principal.py       assemble + synthesize the owner-facing plan
   firm.py            the conductor / blackboard
   firm_agent.py      the five agents: memory, morph, learning minds
+  train.py           keep the firm live — engagements back-to-back so they keep learning
+  eval/corpus.py     30+ businesses across professions the firm trains on
   grounding.py       OWNED judgment — measure grounding & burden from the owner's words
   ingest.py          documents / images (OCR) / audio (WhisperX)
   webapp.py          browser GUI  ·  serve.py  one-command launcher  ·  preflight.py  checks
