@@ -67,12 +67,15 @@ def _append_ledger(path, rec):
 def _format_progress(rec):
     if not rec.get("ok"):
         return f"[{rec['n']}] {rec['business']}: FAILED after {rec['seconds']}s — {rec['error']}"
-    new_total = sum(v for v in rec["new"].values())
+    net = sum(v for v in rec["new"].values())
+    learned = rec.get("learned")
     # ASCII only: this line is printed every engagement, sometimes to a file whose encoding we
     # don't control — a UnicodeEncodeError here must never be able to kill the loop.
     sizes = " | ".join(f"{NAME[k]} {rec['minds'][k]}" for k in rec["minds"])
-    return (f"[{rec['n']}] {rec['business']}: +{new_total} lesson(s) in {rec['seconds']}s"
-            f"   minds -> {sizes}")
+    # 'learned' is gross lessons distilled this engagement; net can be smaller (or negative) when
+    # an agent crossed its threshold and consolidated — a sharpening, not a loss.
+    head = f"learned {learned}, mind net {net:+d}" if learned is not None else f"mind net {net:+d}"
+    return f"[{rec['n']}] {rec['business']}: {head} in {rec['seconds']}s   minds -> {sizes}"
 
 
 def status(minds_dir=DEFAULT_MINDS_DIR):
@@ -104,7 +107,9 @@ def _make_default_runner(clients, out_root, keep_engagements, max_turns):
                                    clock=time.monotonic, max_turns=max_turns)
         if keep_engagements:
             save_engagement(state, os.path.join(out_root, f"{scenario.key}_{_stamp()}"))
-        return state
+        # gross lessons the firm distilled this engagement (before any self-consolidation) —
+        # recorded by finalize() as the 'firm_reflected' event.
+        return next((e.count for e in state.log if e.action == "firm_reflected"), 0)
 
     return run_one
 
@@ -145,12 +150,13 @@ async def train(*, count=None, interval=5.0, minds_dir=DEFAULT_MINDS_DIR, out_ro
             before = mind_sizes(minds_dir)
             t0 = time.monotonic()
             try:
-                await run_one(scenario)
+                learned = await run_one(scenario)
                 after = mind_sizes(minds_dir)
                 rec = {"n": n + 1, "business": scenario.key,
                        "seconds": round(time.monotonic() - t0, 1),
                        "minds": after,
                        "new": {k: after.get(k, 0) - before.get(k, 0) for k in after},
+                       "learned": learned if isinstance(learned, int) else None,
                        "ok": True}
             except Exception as e:  # a bad engagement must never kill the loop
                 rec = {"n": n + 1, "business": scenario.key,
